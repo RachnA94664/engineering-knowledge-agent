@@ -10,10 +10,10 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 |---|---|---|
 | 0 | Tools and accounts | ✅ |
 | 1 | Repository, protection rules, Git workflow | ✅ |
-| 2 | Python project and database | ⬜ replay as PR |
-| 3 | Domain rules | ⬜ replay as PR |
-| 4 | Repositories, services, audit log | ⬜ replay as PR |
-| 5 | REST API | ⬜ replay as PR |
+| 2 | Python project and database | ✅ |
+| 3 | Domain rules | ✅ |
+| 4 | Repositories, services, audit log | ✅ |
+| 5 | REST API | ✅ |
 | 6 | LangGraph agents and `/chat` | 🔄 |
 | 7 | LangSmith tracing | ⬜ |
 | 8 | Automated impact workflow | ⬜ |
@@ -77,7 +77,7 @@ Done when
 - [x] Skeleton PR merged into `develop`
 - [x] `git ls-files` shows `.env.example` but no `.env`
 
-## Phase 2: Python project and database ⬜
+## Phase 2: Python project and database ✅
 
 **Why:** the database is the source of truth; the AI must read from it, never invent.
 
@@ -100,7 +100,7 @@ Done when
 - [ ] Tests pass; PR merged into `develop`
 - [ ] You can explain primary key, foreign key and migration
 
-## Phase 3: Domain rules ⬜
+## Phase 3: Domain rules ✅
 
 **Why:** business rules in plain Python are easy to test and change.
 
@@ -113,7 +113,7 @@ Done when
 - [ ] Thresholds live only in `risk.py`, transitions only in `transitions.py`
 - [ ] PR merged. Try changing `HIGH_THRESHOLD` and watch the tests catch it
 
-## Phase 4: Repositories, services, audit log ⬜
+## Phase 4: Repositories, services, audit log ✅
 
 **Why:** separating "how to store" from "what to do" keeps the rules in one place.
 
@@ -132,7 +132,7 @@ Done when
 - [ ] Agents will only touch `services`, never `repositories`
 - [ ] PR merged; you can explain a transaction and optimistic locking
 
-## Phase 5: REST API ⬜
+## Phase 5: REST API ✅
 
 **Why:** the frontend and agents talk to the backend through a contract.
 
@@ -161,10 +161,13 @@ Mini steps
 - 6.4 **Router node:** rules first (delete/confirm ⇒ refused before any AI call); the AI
   classifies only unclear messages.
 - 6.5 **Grounding node:** every `REQ/TC/RISK` id in an answer must appear in tool output;
-  no tool call ⇒ no answer shown.
+  no tool call ⇒ no answer shown. Only tool results that really ran our code count as
+  evidence (a call the framework rejects proves nothing).
 - 6.6 **Limits:** `recursion_limit`, per-step tool-call cap, model `timeout`,
   `max_retries`, `max_completion_tokens`, temperature 0; `GraphRecursionError` ⇒ friendly
   message.
+- 6.6b **Parallel tool calls:** LangGraph may run one message's tool calls in parallel
+  threads, so the shared database session is guarded by a lock passed in the run config.
 - 6.7 **Model wrapper:** `ChatOpenAI` behind a small factory; missing key or provider
   outage ⇒ clean 503, never a leak.
 - 6.8 **`POST /chat`** and a command-line tool (`python -m app.agents.cli "question"`).

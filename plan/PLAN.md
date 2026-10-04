@@ -65,7 +65,7 @@ Tables: `requirements`, `test_cases`, `risk_items`, `requirement_risks` (many-to
 - `pending_changes` holds proposals awaiting a human decision.
 - Seed data is validated by the same rules before insertion; bad rows are reported and skipped.
 
-## 4. Rules and guardrails ✅ (agent rules 🔄)
+## 4. Rules and guardrails ✅
 
 | Layer | Rules |
 |---|---|
@@ -76,7 +76,7 @@ Tables: `requirements`, `test_cases`, `risk_items`, `requirement_risks` (many-to
 | Agent | Read/propose only; no confirm/reject/delete tool exists; grounding check; step and token limits; rule-based refusals before any AI call |
 | Seed | Every row validated; bad rows reported and skipped |
 
-## 5. Agent architecture (LangGraph) 🔄
+## 5. Agent architecture (LangGraph) ✅ (analysis lane arrives with the impact workflow)
 
 One compiled graph, one run per chat message. State carries the messages plus the intent,
 the evidence (raw tool output), the final answer and any pending proposals.
@@ -110,6 +110,14 @@ START ─► route ─┬─► refuse ─────────────�
 `GraphRecursionError` becomes a friendly message); at most 4 tool calls per step; model
 `timeout`, `max_retries` and `max_completion_tokens`; temperature 0; message length cap.
 
+**Two lessons from building it** (both now covered by tests):
+- LangGraph runs the several tool calls of one AI message in *parallel threads*, but a
+  database session is not thread-safe. The tools therefore take turns using it via a lock
+  passed in the run config.
+- Only tool results that really ran our code count as evidence. A call the framework
+  rejects (bad arguments, unknown tool) never touched the database, so it cannot make an
+  answer pass the grounding check.
+
 **Prompt-injection defence:** database text returns to the model labelled as data; each
 agent can only call its own tools; nothing the model says can confirm or delete.
 
@@ -136,7 +144,7 @@ LLM never decides the impact. Re-confirming a change does nothing.
    impact analysis, audit row. A stale proposal expires with a conflict.
 3. **Reject**: closes the proposal. Both are idempotent.
 
-## 8. API ✅ (+ `/chat` 🔄)
+## 8. API ✅
 
 `GET /health`, `/requirements`, `/requirements/{id}`, `/requirements/without-tests`,
 `/requirements/{id}/test-cases`, `/risks?level=`, `/audit-log`, `/changes`;
@@ -172,11 +180,11 @@ Impact report, Audit log. Loading, error and empty states everywhere.
 | # | Branch | Deliverable | Status |
 |---|---|---|---|
 | 0 | `chore/skeleton` | Repo, protection rules, gitignore, env example, seed data | ✅ |
-| 1 | `feature/database` | Models, Alembic, validating seed loader | ⬜ replay |
-| 2 | `feature/domain-rules` | IDs, state machine, risk scoring | ⬜ replay |
-| 3 | `feature/services-audit` | Repositories, propose/confirm/reject, audit log | ⬜ replay |
-| 4 | `feature/api` | FastAPI app, errors, tests | ⬜ replay |
-| 5 | `feature/langgraph-agents` | LangGraph graph, tools, grounding, `/chat`, fake-model tests | ⬜ |
+| 1 | `feature/database` | Models, Alembic, validating seed loader | ✅ |
+| 2 | `feature/domain-rules` | IDs, state machine, risk scoring | ✅ |
+| 3 | `feature/services-audit` | Repositories, propose/confirm/reject, audit log | ✅ |
+| 4 | `feature/api` | FastAPI app, errors, tests (+ docstrings PR) | ✅ |
+| 5 | `feature/langgraph-agents` | LangGraph graph, tools, grounding, `/chat`, fake-model tests | 🔄 live check with a real key pending |
 | 6 | `feature/tracing` | LangSmith tracing (optional, off by default) | ⬜ |
 | 7 | `feature/impact-workflow` | Impact analysis + Analysis agent | ⬜ |
 | 8 | `feature/frontend` | React UI | ⬜ |
