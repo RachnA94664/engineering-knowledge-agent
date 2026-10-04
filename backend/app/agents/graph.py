@@ -2,7 +2,9 @@
 
     START -> route -+-> refuse ------------------------------------------> END
                     +-> query_agent  <-> query_tools  -> finalize_query ---> END
-                    +-> update_agent <-> update_tools -> finalize_update --> END
+                    +-> update_prepare -+-> update_tools -> finalize_update -> END   (rules)
+                                        +-> update_agent <-> update_tools
+                                                         -> finalize_update -> END   (AI)
 
 LangGraph runs the graph (nodes, edges, tool execution, tracing). The SAFETY RULES are
 ordinary code inside the nodes: refusals before any AI call, each agent's tool allow-list,
@@ -28,6 +30,7 @@ from app.agents.llm import ModelFactory
 from app.agents.prompt_loader import load_prompt
 from app.agents.router import route_by_rules, route_with_llm
 from app.agents.tools import PROPOSE_CHANGE, READ_TOOLS, UPDATE_TOOLS
+from app.agents.update_parser import parse_simple_update
 
 MAX_ROUNDS = 4  # rounds of tool use per message
 MAX_CALLS_PER_STEP = 4  # tool calls the model may make in one round
@@ -42,6 +45,7 @@ class AgentState(MessagesState):
     rounds: int  # how many times the agent has asked for tools
     answer: str  # the final answer shown to the user
     grounded: bool  # True if the answer is backed by database results
+    direct: bool  # True if plain rules (not the AI) prepared the update
 
 
 def _last_human_text(state: AgentState) -> str:
@@ -98,6 +102,33 @@ def make_agent_node(
     return agent_node
 
 
+def update_prepare_node(state: AgentState) -> dict:
+    """A simple change command ("Set REQ-006 priority to high") is read by plain rules.
+
+    The AI is then not needed: the proposal goes through the same tool and the same checks.
+    Anything unusual falls through to the AI agent.
+    """
+    arguments = parse_simple_update(_last_human_text(state))
+    if arguments is None:
+        return {"direct": False}
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {"name": PROPOSE_CHANGE.name, "args": arguments, "id": "rules-1", "type": "tool_call"}
+        ],
+    )
+    return {"messages": [call], "direct": True, "rounds": 1}
+
+
+def after_prepare(state: AgentState) -> str:
+    return "tools" if state.get("direct") else "agent"
+
+
+def after_update_tools(state: AgentState) -> str:
+    """After the rules-made proposal there is nothing for the AI to add: finish."""
+    return "finalize" if state.get("direct") else "agent"
+
+
 def after_agent(state: AgentState) -> str:
     """Run tools if the model asked for them (and we still have rounds left), else finish."""
     last = state["messages"][-1]
@@ -137,9 +168,19 @@ def finalize_update(state: AgentState) -> dict:
     """
     proposals = [e for e in tool_events(state["messages"]) if e.name == PROPOSE_CHANGE.name]
     if proposals:
-        lines = [
-            _describe(e) if e.ok else f"I could not propose that: {e.error}" for e in proposals
-        ]
+        recovered = any(e.ok for e in proposals)
+        lines = []
+        for e in proposals:
+            if e.ok:
+                lines.append(_describe(e))
+            elif e.code == "invalid_call":
+                # The AI's call was malformed. If it then got a proposal through, say nothing
+                # about the glitch; otherwise explain simply, with no framework internals.
+                if not recovered:
+                    lines.append(answers.UPDATE_NOT_UNDERSTOOD_ANSWER)
+            else:
+                lines.append(f"I could not propose that: {e.error}.")
+        lines = list(dict.fromkeys(lines))  # the same sentence once, not three times
         if any(e.ok for e in proposals):
             lines.append(
                 "Nothing has been changed yet. Confirm or reject each proposal in the app."
@@ -171,21 +212,34 @@ def build_graph(get_model: ModelFactory):
     graph.add_node("query_tools", ToolNode(list(READ_TOOLS), handle_tool_errors=True))
     graph.add_node("finalize_query", finalize_query)
 
+    graph.add_node("update_prepare", update_prepare_node)
     graph.add_node("update_agent", make_agent_node(get_model, load_prompt("update"), UPDATE_TOOLS))
     graph.add_node("update_tools", ToolNode(list(UPDATE_TOOLS), handle_tool_errors=True))
     graph.add_node("finalize_update", finalize_update)
 
     graph.add_edge(START, "route")
     graph.add_conditional_edges(
-        "route", pick_lane, {"refuse": "refuse", "query": "query_agent", "update": "update_agent"}
+        "route", pick_lane, {"refuse": "refuse", "query": "query_agent", "update": "update_prepare"}
     )
     graph.add_edge("refuse", END)
 
-    for lane in ("query", "update"):
-        graph.add_conditional_edges(
-            f"{lane}_agent", after_agent, {"tools": f"{lane}_tools", "finalize": f"finalize_{lane}"}
-        )
-        graph.add_edge(f"{lane}_tools", f"{lane}_agent")
-        graph.add_edge(f"finalize_{lane}", END)
+    # Query lane: the AI asks for tools until it can answer, then the grounding check runs.
+    graph.add_conditional_edges(
+        "query_agent", after_agent, {"tools": "query_tools", "finalize": "finalize_query"}
+    )
+    graph.add_edge("query_tools", "query_agent")
+    graph.add_edge("finalize_query", END)
+
+    # Update lane: rules first; the AI only when the command is not simple.
+    graph.add_conditional_edges(
+        "update_prepare", after_prepare, {"tools": "update_tools", "agent": "update_agent"}
+    )
+    graph.add_conditional_edges(
+        "update_agent", after_agent, {"tools": "update_tools", "finalize": "finalize_update"}
+    )
+    graph.add_conditional_edges(
+        "update_tools", after_update_tools, {"agent": "update_agent", "finalize": "finalize_update"}
+    )
+    graph.add_edge("finalize_update", END)
 
     return graph.compile(name="knowledge_agent")

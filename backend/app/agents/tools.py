@@ -171,7 +171,8 @@ GET_AUDIT_LOG = make_tool(
 )
 PROPOSE_CHANGE = make_tool(
     "propose_requirement_change",
-    "Propose a change to a requirement. This does NOT apply it: a person must confirm it.",
+    "Propose a change to a requirement. This does NOT apply it: a person must confirm it. "
+    "Give requirement_id plus only the fields that change (title, description, priority, status).",
     ProposeArgs,
     _propose,
     writes=True,
