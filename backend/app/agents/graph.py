@@ -40,6 +40,7 @@ from app.agents.tools import (
     UPDATE_TOOLS,
 )
 from app.agents.update_parser import parse_simple_update
+from app.core.tracing import tag_current_run
 
 MAX_ROUNDS = 4  # rounds of tool use per message
 MAX_CALLS_PER_STEP = 4  # tool calls the model may make in one round
@@ -79,6 +80,12 @@ def make_route_node(get_model: ModelFactory) -> Callable:
         decision = route_by_rules(text)  # free and predictable; no AI involved
         if decision is None:
             decision = route_with_llm(get_model(), text, config)  # only for unclear messages
+        # In the LangSmith dashboard: filter runs by intent, and see how it was decided.
+        tag_current_run(
+            config,
+            [f"intent:{decision.intent}"],
+            {"intent": decision.intent, "routed_by": "ai" if decision.used_llm else "rules"},
+        )
         return {"intent": decision.intent, "reason": decision.reason, "rounds": 0}
 
     return route_node

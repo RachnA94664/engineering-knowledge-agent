@@ -22,8 +22,10 @@ MAX_MESSAGE_CHARS = 1000
 
 
 class AgentRuntime:
-    def __init__(self, get_model: ModelFactory):
+    def __init__(self, get_model: ModelFactory, tracer=None):
+        """`tracer`: an optional LangSmith tracer (see core/tracing.py). None = no tracing."""
         self._get_model = get_model
+        self._tracer = tracer
         self._graph = build_graph(get_model)
 
     def run(self, session: Session, message: str) -> AgentResult:
@@ -47,7 +49,10 @@ class AgentRuntime:
             "configurable": {"session": session, "db_lock": threading.Lock()},
             "recursion_limit": RECURSION_LIMIT,
             "run_name": "chat",
+            "tags": ["engineering-knowledge-agent"],
         }
+        if self._tracer is not None:
+            config["callbacks"] = [self._tracer]
         try:
             return self._graph.invoke({"messages": [HumanMessage(content=text)]}, config)
         except openai.BadRequestError as exc:
