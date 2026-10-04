@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.agents import answers
 from app.agents.events import collect_records, tool_events, tool_trace
 from app.agents.graph import RECURSION_LIMIT, build_graph
-from app.agents.llm import ModelFactory
+from app.agents.llm import DEFAULT_UNAVAILABLE_MESSAGE, PROVIDER_ERRORS, ModelFactory
 from app.agents.tools import PROPOSE_CHANGE
 from app.agents.types import AgentResult
 from app.domain.errors import ServiceUnavailable, ValidationError
@@ -57,11 +57,16 @@ class AgentRuntime:
             if retry_without_temperature and "temperature" in str(exc).lower() and drop and drop():
                 return self._invoke(session, text, retry_without_temperature=False)
             logger.error("AI request rejected: %s", type(exc).__name__)
-            raise ServiceUnavailable("the AI service is not available right now") from exc
-        except openai.OpenAIError as exc:
-            # Log the kind of failure for us; tell the user nothing sensitive.
+            raise ServiceUnavailable(self._unavailable_message()) from exc
+        except PROVIDER_ERRORS as exc:
+            # Whichever AI is in use (OpenAI, Ollama, ...): log the kind of failure for us and
+            # tell the user nothing sensitive (the original message is never shown).
             logger.error("AI request failed: %s", type(exc).__name__)
-            raise ServiceUnavailable("the AI service is not available right now") from exc
+            raise ServiceUnavailable(self._unavailable_message()) from exc
+
+    def _unavailable_message(self) -> str:
+        """A fixed, safe sentence. A local provider may add a helpful hint (is Ollama running?)."""
+        return getattr(self._get_model, "unavailable_message", DEFAULT_UNAVAILABLE_MESSAGE)
 
     @staticmethod
     def _to_result(state: dict) -> AgentResult:
