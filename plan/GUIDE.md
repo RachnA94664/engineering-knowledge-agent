@@ -10,10 +10,10 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 |---|---|---|
 | 0 | Tools and accounts | ✅ |
 | 1 | Repository, protection rules, Git workflow | ✅ |
-| 2 | Python project and database | ⬜ replay as PR |
-| 3 | Domain rules | ⬜ replay as PR |
-| 4 | Repositories, services, audit log | ⬜ replay as PR |
-| 5 | REST API | ⬜ replay as PR |
+| 2 | Python project and database | ✅ |
+| 3 | Domain rules | ✅ |
+| 4 | Repositories, services, audit log | ✅ |
+| 5 | REST API | ✅ |
 | 6 | LangGraph agents and `/chat` | 🔄 |
 | 7 | LangSmith tracing | ⬜ |
 | 8 | Automated impact workflow | ⬜ |
@@ -77,7 +77,7 @@ Done when
 - [x] Skeleton PR merged into `develop`
 - [x] `git ls-files` shows `.env.example` but no `.env`
 
-## Phase 2: Python project and database ⬜
+## Phase 2: Python project and database ✅
 
 **Why:** the database is the source of truth; the AI must read from it, never invent.
 
@@ -100,7 +100,7 @@ Done when
 - [ ] Tests pass; PR merged into `develop`
 - [ ] You can explain primary key, foreign key and migration
 
-## Phase 3: Domain rules ⬜
+## Phase 3: Domain rules ✅
 
 **Why:** business rules in plain Python are easy to test and change.
 
@@ -113,7 +113,7 @@ Done when
 - [ ] Thresholds live only in `risk.py`, transitions only in `transitions.py`
 - [ ] PR merged. Try changing `HIGH_THRESHOLD` and watch the tests catch it
 
-## Phase 4: Repositories, services, audit log ⬜
+## Phase 4: Repositories, services, audit log ✅
 
 **Why:** separating "how to store" from "what to do" keeps the rules in one place.
 
@@ -132,7 +132,7 @@ Done when
 - [ ] Agents will only touch `services`, never `repositories`
 - [ ] PR merged; you can explain a transaction and optimistic locking
 
-## Phase 5: REST API ⬜
+## Phase 5: REST API ✅
 
 **Why:** the frontend and agents talk to the backend through a contract.
 
@@ -161,12 +161,19 @@ Mini steps
 - 6.4 **Router node:** rules first (delete/confirm ⇒ refused before any AI call); the AI
   classifies only unclear messages.
 - 6.5 **Grounding node:** every `REQ/TC/RISK` id in an answer must appear in tool output;
-  no tool call ⇒ no answer shown.
+  no tool call ⇒ no answer shown. Only tool results that really ran our code count as
+  evidence (a call the framework rejects proves nothing).
 - 6.6 **Limits:** `recursion_limit`, per-step tool-call cap, model `timeout`,
   `max_retries`, `max_completion_tokens`, temperature 0; `GraphRecursionError` ⇒ friendly
   message.
-- 6.7 **Model wrapper:** `ChatOpenAI` behind a small factory; missing key or provider
-  outage ⇒ clean 503, never a leak.
+- 6.6b **Parallel tool calls:** LangGraph may run one message's tool calls in parallel
+  threads, so the shared database session is guarded by a lock passed in the run config.
+- 6.7 **Model wrapper:** the AI is created in one file behind a small factory and chosen by
+  `LLM_PROVIDER`: `ChatOpenAI` (paid) or `ChatOllama` (free, local). Missing key, a stopped
+  Ollama, or any provider outage ⇒ one clean 503 message, never a leak.
+- 6.7b **Free local AI (Ollama):** install Ollama, `ollama pull qwen2.5:3b`, set
+  `LLM_PROVIDER=ollama` in `backend/.env`. Expect slow answers on a CPU-only PC; raise
+  `OLLAMA_TIMEOUT_SECONDS` if calls time out.
 - 6.8 **`POST /chat`** and a command-line tool (`python -m app.agents.cli "question"`).
 - 6.9 **Tests with a scripted fake chat model** (it must support `bind_tools`): the five
   sample questions, unknown id ⇒ "not found", invented id blocked, loop limit,
@@ -290,6 +297,8 @@ Loop for every change: **branch, change, test, commit, PR, merge, deploy.**
 - **PR base is `main`:** GitHub's yellow banner defaults to it. Change base to `develop`.
 - **Docker "daemon not running":** start Docker Desktop and wait for "Engine running".
 - **CORS error:** `ALLOWED_ORIGINS` must contain the frontend URL exactly (no trailing slash).
+- **"AI service is not available" with OpenAI:** open the billing page; `credit_balance_exhausted` means the account has no credits.
+- **"local AI (Ollama) is not reachable":** start Ollama (`ollama serve` or the tray app) and check `ollama list` shows the model.
 - **Agent invents things:** the grounding check must run and the prompt must say "tool results only".
 - **LangSmith shows nothing:** the variables must be in the process environment, not only in a file.
 - **Key leaked:** revoke it immediately, then remove it from git history.
