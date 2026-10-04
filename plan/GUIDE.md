@@ -160,6 +160,9 @@ Mini steps
   `update_tools`, `finalize_update`. Conditional edges choose the path.
 - 6.4 **Router node:** rules first (delete/confirm ⇒ refused before any AI call); the AI
   classifies only unclear messages.
+- 6.4b **Update lane:** a `update_prepare` node reads simple commands ("Set REQ-006 priority to
+  high") with rules and proposes directly; only unusual wording reaches the AI. Small local
+  models fumble tool arguments, so rules make the common case exact and instant.
 - 6.5 **Grounding node:** every `REQ/TC/RISK` id in an answer must appear in tool output;
   no tool call ⇒ no answer shown. Only tool results that really ran our code count as
   evidence (a call the framework rejects proves nothing).
@@ -299,6 +302,8 @@ Loop for every change: **branch, change, test, commit, PR, merge, deploy.**
 - **CORS error:** `ALLOWED_ORIGINS` must contain the frontend URL exactly (no trailing slash).
 - **"AI service is not available" with OpenAI:** open the billing page; `credit_balance_exhausted` means the account has no credits.
 - **"local AI (Ollama) is not reachable":** start Ollama (`ollama serve` or the tray app) and check `ollama list` shows the model.
+- **/chat shows a long ToolInvocationError:** the AI used wrong argument names. Simple commands avoid this (rules); otherwise rephrase as `Set REQ-006 priority to high`.
+- **Confirm says "change N does not exist":** you used the *requirement* number (007) instead of the *change id* returned by the propose call.
 - **Agent invents things:** the grounding check must run and the prompt must say "tool results only".
 - **LangSmith shows nothing:** the variables must be in the process environment, not only in a file.
 - **Key leaked:** revoke it immediately, then remove it from git history.

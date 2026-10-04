@@ -84,7 +84,8 @@ the evidence (raw tool output), the final answer and any pending proposals.
 ```
 START ─► route ─┬─► refuse ─────────────────────────────────────────────► END
                 ├─► query_agent ◄─► query_tools ─► finalize_query ──────────► END
-                ├─► update_agent ◄─► update_tools ─► finalize_update ───────► END
+                ├─► update_prepare ─► update_tools ─► finalize_update ───────► END   (simple command: rules)
+                │        └─► update_agent ◄─► update_tools ─► finalize_update   (unusual wording: AI)
                 └─► analysis_agent ◄─► analysis_tools ─► finalize_analysis ─► END
 ```
 
@@ -92,6 +93,7 @@ START ─► route ─┬─► refuse ─────────────�
 |---|---|
 | `route` | Rules first (free, predictable); a small AI classification only for unclear messages |
 | `refuse` | Delete/remove, confirm/reject-by-chat, off-topic: answered by code, no AI call |
+| `update_prepare` | Reads simple change commands ("Set REQ-006 priority to high", "Mark REQ-002 as obsolete") with plain rules and builds the proposal directly: instant, free and exact. Anything unusual goes to the AI. The result is still only a *proposal* through the same tool and checks |
 | `*_agent` | The chat model, bound to **only that agent's tools** |
 | `*_tools` | LangGraph `ToolNode` running our tools (each tool wraps a service) |
 | `finalize_query` | Grounding check: every `REQ/TC/RISK` id in the answer must appear in tool output, else the answer is blocked and only the real records are shown. No tool call ⇒ no answer |
@@ -109,6 +111,11 @@ START ─► route ─┬─► refuse ─────────────�
 **Limits (in code, not in prompts):** `recursion_limit` on every graph run (a
 `GraphRecursionError` becomes a friendly message); at most 4 tool calls per step; model
 `timeout`, `max_retries` and `max_completion_tokens`; temperature 0; message length cap.
+
+**Rules first, AI second.** A 3B local model sometimes called the propose tool with wrong
+argument names (found while testing `/docs`). Simple commands are therefore read by rules
+(`agents/update_parser.py`); when the AI's call is rejected anyway, the user sees one friendly
+sentence, never the framework's error text.
 
 **Two lessons from building it** (both now covered by tests):
 - LangGraph runs the several tool calls of one AI message in *parallel threads*, but a
