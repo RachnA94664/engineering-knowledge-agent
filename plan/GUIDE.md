@@ -14,9 +14,9 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 | 3 | Domain rules | ✅ |
 | 4 | Repositories, services, audit log | ✅ |
 | 5 | REST API | ✅ |
-| 6 | LangGraph agents and `/chat` | 🔄 |
+| 6 | LangGraph agents and `/chat` | ✅ |
 | 7 | LangSmith tracing | ⬜ |
-| 8 | Automated impact workflow | ⬜ |
+| 8 | Automated impact workflow | 🔄 |
 | 9 | Frontend | ⬜ |
 | 10 | Docker | ⬜ |
 | 11 | CI | ⬜ |
@@ -145,7 +145,7 @@ Done when
 - [ ] Errors share one JSON shape; the audit `source` is set by the server
 - [ ] PR merged
 
-## Phase 6: LangGraph agents and `/chat` 🔄
+## Phase 6: LangGraph agents and `/chat` ✅
 
 **Why:** the AI part. The model chooses tools; **our code does the work and enforces the
 rules**. LangGraph runs the graph; our safety code stays ours.
@@ -205,19 +205,39 @@ Done when
 - [ ] With tracing off or the key missing, everything still works
 - [ ] You can find the prompt, the tool arguments and the token usage of one run
 
-## Phase 8: Automated impact workflow ⬜
+## Phase 8: Automated impact workflow 🔄
 
-**Why:** shows a system acting on its own after an event.
+**Why:** shows a system acting on its own after an event, safely.
 
-Mini steps: `services/impact.py` (linked tests → `not_run`, linked risks flagged, impact
-level); call it inside `confirm` in the same transaction; save the report and link it to
-the audit entry; `GET /requirements/{id}/impact`; add an Analysis agent node that
-summarises the stored report (the model never decides the impact); tests (REQ-009 affects
-its 4 tests and RISK-003; confirming twice does nothing).
+Mini steps
+- 8.1 **Rules first** (`domain/impact.py`, pure Python): what a confirmed change affects.
+  description edited ⇒ passing tests reset, risks flagged; priority raised ⇒ risks flagged;
+  obsolete ⇒ risks flagged; verified ⇒ warn if tests are not passing. Impact level low / medium
+  / high. Unit-test every rule before touching the database.
+- 8.2 **Database:** table `impact_reports` (one per change: `change_id` UNIQUE) and column
+  `risk_items.needs_review`. **Test the migration on a populated database**, both directions:
+  a SQL-expression default (`sa.text("0")`) made SQLite rebuild the table and fail on foreign
+  keys; a plain `"0"` default is a simple `ALTER TABLE`.
+- 8.3 **Service** (`services/impact.py`): called from `confirm_change` *inside the same
+  transaction*; applies the effects; writes a report and one audit row per automatic change
+  (actor `impact-analysis`, source `system`, `caused_by_change`).
+- 8.4 **Atomic and idempotent:** a failure anywhere undoes the whole confirm; confirming twice
+  returns the same report and resets nothing again. Test both.
+- 8.5 **API:** `GET /requirements/{id}/impact`; confirm returns `impact`; `POST
+  /risks/{id}/reviewed` clears a flag; `GET /risks?needs_review=true`.
+- 8.6 **Agent:** an analysis lane. `analysis_prepare` reads the stored report with rules when
+  one requirement is named; the answer is the report's own summary. Unusual questions use the AI
+  with the grounding check.
+- 8.7 **Consistent timestamps:** a `UTCDateTime` column type (SQLite drops timezones).
+- 8.8 Live check: confirm a description change to REQ-009 and watch 3 tests reset and RISK-003
+  flagged; ask the chat about it.
 
 Done when
-- [ ] Confirming a change produces a correct impact report, atomically with the audit row
-- [ ] Re-confirming repeats nothing; the summary mentions only real ids
+- [ ] Confirming a change gives a correct report, atomically with the audit rows
+- [ ] Re-confirming repeats nothing; a failure leaves everything unchanged (tested)
+- [ ] The summary and the chat answer mention only real ids
+- [ ] The migration upgrades an existing populated database and can be rolled back
+- [ ] PR merged
 
 ## Phase 9: Frontend ⬜
 
@@ -303,6 +323,8 @@ Loop for every change: **branch, change, test, commit, PR, merge, deploy.**
 - **"AI service is not available" with OpenAI:** open the billing page; `credit_balance_exhausted` means the account has no credits.
 - **"local AI (Ollama) is not reachable":** start Ollama (`ollama serve` or the tray app) and check `ollama list` shows the model.
 - **/chat shows a long ToolInvocationError:** the AI used wrong argument names. Simple commands avoid this (rules); otherwise rephrase as `Set REQ-006 priority to high`.
+- **Migration fails with `FOREIGN KEY constraint failed ... DROP TABLE`:** Alembic rebuilt a table because a new column's default was a SQL expression. Use a plain constant default (`server_default="0"`).
+- **A timestamp has no `+00:00`:** SQLite drops timezones; use the `UTCDateTime` column type.
 - **Confirm says "change N does not exist":** you used the *requirement* number (007) instead of the *change id* returned by the propose call.
 - **Agent invents things:** the grounding check must run and the prompt must say "tool results only".
 - **LangSmith shows nothing:** the variables must be in the process environment, not only in a file.
