@@ -22,3 +22,7 @@ OUT_OF_SCOPE_ANSWER = (
 TOO_MANY_STEPS_UPDATE_ANSWER = (
     "I could not finish preparing that change. Please try a simpler request."
 )
+UPDATE_NOT_UNDERSTOOD_ANSWER = (
+    "I could not turn that into a valid change. Try: 'Set REQ-007 status to implemented' "
+    "or 'Change the priority of REQ-003 to high'."
+)
