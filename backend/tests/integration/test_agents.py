@@ -62,12 +62,10 @@ def test_which_requirements_have_no_test_cases(seeded):
 
 
 def test_update_the_status_creates_a_proposal_and_applies_nothing(seeded):
-    runtime, _ = runtime_with(
-        call("propose_requirement_change", requirement_id="REQ-007", status="implemented"),
-        say("All done, the change has been applied!"),  # a lie: the reply is written by code
-    )
+    runtime, model = runtime_with()  # a simple command needs no AI at all
     result = runtime.run(seeded, "Update the status of REQ-007 to implemented.")
 
+    assert model.calls == []
     assert result.intent == "update" and result.grounded
     assert len(result.pending_changes) == 1
     assert result.pending_changes[0]["change"]["status"] == "pending"
@@ -77,6 +75,84 @@ def test_update_the_status_creates_a_proposal_and_applies_nothing(seeded):
     assert knowledge.get_requirement(seeded, "REQ-007")["status"] == "approved"
     entry = knowledge.audit_log(seeded)[0]
     assert (entry["action"], entry["source"]) == ("propose", "agent")
+
+
+def test_an_ai_made_proposal_cannot_claim_the_change_was_applied(seeded):
+    runtime, model = runtime_with(
+        call("propose_requirement_change", requirement_id="REQ-007", status="implemented"),
+        say("All done, the change has been applied!"),  # a lie: the reply is written by code
+    )
+    result = runtime.run(seeded, "Please move REQ-007 on to the implemented status")
+
+    assert len(model.calls) >= 1  # unusual wording: the AI really was used
+    assert len(result.pending_changes) == 1
+    assert "applied" not in result.answer.lower()
+    assert knowledge.get_requirement(seeded, "REQ-007")["status"] == "approved"
+
+
+@pytest.mark.parametrize(
+    "message,field,old,new",
+    [
+        ("Set REQ-006 priority to high", "priority", "medium", "high"),
+        ("Change the priority of REQ-003 to low", "priority", "critical", "low"),
+        ("Mark REQ-007 as implemented", "status", "approved", "implemented"),
+        ("set REQ-007's status to implemented.", "status", "approved", "implemented"),
+    ],
+)
+def test_simple_change_commands_never_need_the_ai(seeded, message, field, old, new):
+    runtime, model = runtime_with()  # an empty script fails the test if the AI is called
+    result = runtime.run(seeded, message)
+
+    assert model.calls == []
+    assert result.pending_changes[0]["preview"] == {field: {"old": old, "new": new}}
+    assert result.tool_calls[0]["name"] == "propose_requirement_change"
+
+
+def test_a_rule_read_command_still_obeys_every_rule(seeded):
+    runtime, model = runtime_with()
+    result = runtime.run(seeded, "Set REQ-007 status to draft")  # backwards: not allowed
+
+    assert model.calls == []
+    assert result.pending_changes == []
+    assert "cannot change status from 'approved' to 'draft'" in result.answer
+    assert changes.list_pending_changes(seeded) == []
+
+
+def test_a_command_with_an_invalid_value_is_left_to_the_ai(seeded):
+    runtime, model = runtime_with(say("Which priority do you want?"))
+    result = runtime.run(seeded, "Set REQ-006 priority to urgent")
+
+    assert len(model.calls) == 1  # the rules declined, so the AI was asked
+    assert result.answer == answers.NEEDS_DETAILS_ANSWER
+    assert changes.list_pending_changes(seeded) == []
+
+
+def test_the_exact_failure_from_a_small_model_gets_a_friendly_answer(seeded):
+    """A small model used the wrong argument name ('new_priority'): no ugly internals."""
+    runtime, _ = runtime_with(
+        call("propose_requirement_change", requirement_id="REQ-006", new_priority="high"),
+        say("Sorry, that did not work."),
+    )
+    result = runtime.run(seeded, "Please move REQ-006 up, the priority should be high")
+
+    assert result.answer == answers.UPDATE_NOT_UNDERSTOOD_ANSWER
+    assert "ToolInvocationError" not in result.answer and "kwargs" not in result.answer
+    assert result.tool_calls[0]["ok"] is False
+    assert result.tool_calls[0]["error"] == "new_priority: Extra inputs are not permitted"
+    assert changes.list_pending_changes(seeded) == []
+
+
+def test_when_the_ai_fixes_its_own_mistake_the_user_only_sees_the_result(seeded):
+    runtime, _ = runtime_with(
+        call("propose_requirement_change", requirement_id="REQ-006", new_priority="high"),
+        call("propose_requirement_change", requirement_id="REQ-006", priority="high"),
+        say("Done."),
+    )
+    result = runtime.run(seeded, "Please move REQ-006 up, the priority should be high")
+
+    assert len(result.pending_changes) == 1
+    assert "could not turn that into a valid change" not in result.answer
+    assert result.answer.startswith("Proposed change #1 for REQ-006")
 
 
 # ---------- the AI must not invent records ----------
