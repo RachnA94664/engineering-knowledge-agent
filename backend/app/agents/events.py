@@ -6,6 +6,7 @@ the three things the user and the safety checks need: the evidence, the trace, t
 """
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -31,6 +32,24 @@ class ToolEvent:
     ok: bool
     result: Any = None
     error: str | None = None
+    # Why it failed: our own error code (e.g. "invalid_transition"), or "invalid_call" when the
+    # framework rejected the AI's call (wrong argument names, unknown tool) before our code ran.
+    code: str | None = None
+
+
+def clean_framework_error(text: str) -> str:
+    """Shorten the framework's rejection text to the useful part, e.g.
+    "new_priority: Extra inputs are not permitted" (no tool name, no argument dump)."""
+    # The framework embeds its message inside an exception's text, so line breaks can arrive as
+    # the two characters backslash + n. Turn them back into real breaks first.
+    text = text.replace("\\n", "\n")
+    match = re.search(r"with error:\s*(.*?)\s*Please fix", text, re.DOTALL)
+    if match:
+        return " ".join(match.group(1).split())
+    match = re.search(r"(\S+ is not a valid tool)", text)
+    if match:
+        return match.group(1)
+    return " ".join(text.split())[:200]
 
 
 def tool_events(messages: list[BaseMessage]) -> list[ToolEvent]:
@@ -49,15 +68,15 @@ def tool_events(messages: list[BaseMessage]) -> list[ToolEvent]:
         if isinstance(outcome, dict) and "ok" in outcome:
             ok = bool(outcome["ok"])
             error = None if ok else outcome["error"]["message"]
+            code = None if ok else outcome["error"]["code"]
             events.append(
-                ToolEvent(message.name or "?", arguments, ok, outcome.get("result"), error)
+                ToolEvent(message.name or "?", arguments, ok, outcome.get("result"), error, code)
             )
         else:
             # The framework refused the call before our code ran (bad arguments, unknown tool).
+            error = clean_framework_error(message_text(message.content))
             events.append(
-                ToolEvent(
-                    message.name or "?", arguments, False, None, message_text(message.content)
-                )
+                ToolEvent(message.name or "?", arguments, False, None, error, "invalid_call")
             )
     return events
 
