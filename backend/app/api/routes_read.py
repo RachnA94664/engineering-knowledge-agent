@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from app.api.deps import ERRORS, SessionDep
-from app.api.schemas import AuditOut, RequirementOut, RiskOut, TestCaseOut
+from app.api.schemas import AuditOut, ImpactReportOut, RequirementOut, RiskOut, TestCaseOut
 from app.services import knowledge
 
 router = APIRouter()
@@ -45,6 +45,17 @@ def get_requirement(requirement_id: str, session: SessionDep):
 def test_cases_for_requirement(requirement_id: str, session: SessionDep):
     """Test cases that belong to a requirement."""
     return knowledge.get_test_cases_for_requirement(session, requirement_id)
+
+
+@router.get(
+    "/requirements/{requirement_id}/impact",
+    response_model=ImpactReportOut,
+    responses={404: ERRORS[404], 422: ERRORS[422]},
+    tags=["requirements"],
+)
+def requirement_impact(requirement_id: str, session: SessionDep):
+    """The latest impact report: what the last confirmed change to this requirement affected."""
+    return knowledge.get_impact(session, requirement_id)
 
 
 @router.get("/risks", response_model=list[RiskOut], responses={422: ERRORS[422]}, tags=["risks"])

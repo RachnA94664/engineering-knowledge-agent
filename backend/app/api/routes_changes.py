@@ -10,8 +10,16 @@ There is deliberately no PUT, PATCH or DELETE on any record.
 from fastapi import APIRouter
 
 from app.api.deps import API_SOURCE, ERRORS, SessionDep
-from app.api.schemas import ActorIn, ChangeOut, ConfirmOut, ProposeChangeIn, ProposeOut, RejectOut
-from app.services import changes
+from app.api.schemas import (
+    ActorIn,
+    ChangeOut,
+    ConfirmOut,
+    ProposeChangeIn,
+    ProposeOut,
+    RejectOut,
+    RiskOut,
+)
+from app.services import changes, reviews
 
 router = APIRouter(tags=["changes"])
 
@@ -57,3 +65,14 @@ def confirm_change(change_id: int, body: ActorIn, session: SessionDep):
 def reject_change(change_id: int, body: ActorIn, session: SessionDep):
     """Discard a pending change without applying it."""
     return changes.reject_change(session, change_id, actor=body.actor, source=API_SOURCE)
+
+
+@router.post(
+    "/risks/{risk_id}/reviewed",
+    response_model=RiskOut,
+    tags=["risks"],
+    responses={404: ERRORS[404], 422: ERRORS[422]},
+)
+def risk_reviewed(risk_id: str, body: ActorIn, session: SessionDep):
+    """A person confirms they reviewed a flagged risk. Clears `needs_review`; safe to repeat."""
+    return reviews.mark_risk_reviewed(session, risk_id, actor=body.actor, source=API_SOURCE)

@@ -59,6 +59,10 @@ class RiskOut(BaseModel):
     status: str
     score: int = Field(description="severity x likelihood (derived, never stored)")
     level: str = Field(description="low, medium or high (derived, never stored)")
+    needs_review: bool = Field(
+        description="set automatically when a confirmed change may affect this risk; "
+        "cleared by a person via POST /risks/{id}/reviewed"
+    )
 
 
 class ChangeOut(BaseModel):
@@ -78,10 +82,51 @@ class ProposeOut(BaseModel):
     preview: dict[str, dict[str, Any]] = Field(description="field -> {old, new}")
 
 
+class ResetTestOut(BaseModel):
+    id: str
+    title: str
+    old_status: str
+    new_status: str
+
+
+class FailingTestOut(BaseModel):
+    id: str
+    title: str
+    status: str
+
+
+class RiskToFlagOut(BaseModel):
+    id: str
+    title: str
+    score: int
+    level: str
+    status: str
+    already_flagged: bool
+
+
+class ImpactReportOut(BaseModel):
+    """What a confirmed change affected. Written by rules, never by the AI."""
+
+    id: int
+    change_id: int
+    created_at: str | None
+    requirement_id: str
+    level: str = Field(description="low, medium or high")
+    changed_fields: dict[str, dict[str, Any]] = Field(description="field -> {old, new}")
+    tests_to_reset: list[ResetTestOut] = Field(description="passing tests reset to not_run")
+    tests_failing: list[FailingTestOut] = Field(description="linked tests that fail or are blocked")
+    risks_to_flag: list[RiskToFlagOut] = Field(description="linked risks flagged for review")
+    warnings: list[str]
+    summary: str = Field(description="a plain sentence describing the impact")
+
+
 class ConfirmOut(BaseModel):
     change: ChangeOut
     already_applied: bool
     requirement: RequirementOut | None = None
+    impact: ImpactReportOut | None = Field(
+        default=None, description="the automatic impact analysis of this change"
+    )
 
 
 class RejectOut(BaseModel):
