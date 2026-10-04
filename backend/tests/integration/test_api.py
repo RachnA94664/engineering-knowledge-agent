@@ -156,10 +156,11 @@ def test_audit_log_records_proposal_and_update(api):
 
     entries = api.get("/audit-log", params={"entity_id": "REQ-007"}).json()
 
-    assert [e["action"] for e in entries] == ["update", "propose"]  # newest first
-    assert entries[0]["old_value"] == {"status": "approved"}
-    assert entries[0]["new_value"] == {"status": "implemented"}
-    assert all(e["source"] == "ui" for e in entries)
+    # newest first: the automatic impact analysis (system), the update, the proposal
+    assert [e["action"] for e in entries] == ["impact", "update", "propose"]
+    assert [e["source"] for e in entries] == ["system", "ui", "ui"]
+    assert entries[1]["old_value"] == {"status": "approved"}
+    assert entries[1]["new_value"] == {"status": "implemented"}
 
 
 # ---------- safety rules ----------
