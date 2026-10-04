@@ -15,7 +15,7 @@ Status legend: ✅ done, 🔄 in progress, ⬜ not started.
 | API | FastAPI + Pydantic v2 | Validation from type hints; auto `/docs` | Flask, Django |
 | Database | SQLite + SQLAlchemy 2 + Alembic | Zero setup; real constraints; versioned migrations | PostgreSQL (production), MySQL |
 | Agent orchestration | **LangGraph** | Our flow *is* a graph: router, agents, tools, checks. Built-in loop limits, conditional edges, tracing | Plain code, full LangChain agents, CrewAI |
-| LLM and tools | **langchain-core + langchain-openai** | Standard chat-model and tool interfaces; OpenAI via `ChatOpenAI` | OpenAI SDK directly, Anthropic |
+| LLM and tools | **langchain-core**, with **langchain-openai** or **langchain-ollama** | Standard chat-model and tool interfaces. The AI is chosen by one setting (`LLM_PROVIDER`): OpenAI (paid API) or Ollama (a free model on your own PC, no key) | OpenAI SDK directly, Anthropic, Groq, Gemini |
 | Tracing and evals | **LangSmith** | Switched on with environment variables; shows every prompt, tool call, token and latency | Langfuse (open source), none |
 | Frontend | React + Vite + TypeScript | Common, typed | Vue, Svelte |
 | Tests | pytest, httpx, a fake chat model | Fast, no key, deterministic | unittest |
@@ -125,6 +125,13 @@ agent can only call its own tools; nothing the model says can confirm or delete.
 not by LangGraph interrupts. This keeps approval durable across restarts and visible in
 the UI, without needing a graph checkpointer.
 
+**Choosing the AI:** `LLM_PROVIDER=openai|ollama`. The model is created in one file
+(`agents/llm.py`) and everything else receives a factory, so the agents do not know which
+AI they use. Provider failures (network, rate limit, billing, a stopped local server, an
+unknown model) all become one safe "service unavailable" answer; a local provider adds a
+helpful hint ("is Ollama running?"). Local models on a CPU are slow (long timeout) and less
+reliable at calling tools, but every safety check still applies to whatever they produce.
+
 **Tracing:** LangSmith, enabled by environment variables (`LANGSMITH_TRACING`,
 `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`). Each run is tagged with the intent. Traces
 contain question and record text, so only dummy data is used.
@@ -221,5 +228,5 @@ Impact report, Audit log. Loading, error and empty states everywhere.
 ## 15. Known limitations
 
 No authentication (actor names are free text); SQLite on free hosts resets on restart
-(data is re-seeded); free hosts sleep when idle; the AI service is not free; no chat
+(data is re-seeded); free hosts sleep when idle; the OpenAI API is not free (Ollama is, but slow on a CPU); no chat
 history across messages; no rate limiting until deployment.

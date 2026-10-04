@@ -168,8 +168,12 @@ Mini steps
   message.
 - 6.6b **Parallel tool calls:** LangGraph may run one message's tool calls in parallel
   threads, so the shared database session is guarded by a lock passed in the run config.
-- 6.7 **Model wrapper:** `ChatOpenAI` behind a small factory; missing key or provider
-  outage ⇒ clean 503, never a leak.
+- 6.7 **Model wrapper:** the AI is created in one file behind a small factory and chosen by
+  `LLM_PROVIDER`: `ChatOpenAI` (paid) or `ChatOllama` (free, local). Missing key, a stopped
+  Ollama, or any provider outage ⇒ one clean 503 message, never a leak.
+- 6.7b **Free local AI (Ollama):** install Ollama, `ollama pull qwen2.5:3b`, set
+  `LLM_PROVIDER=ollama` in `backend/.env`. Expect slow answers on a CPU-only PC; raise
+  `OLLAMA_TIMEOUT_SECONDS` if calls time out.
 - 6.8 **`POST /chat`** and a command-line tool (`python -m app.agents.cli "question"`).
 - 6.9 **Tests with a scripted fake chat model** (it must support `bind_tools`): the five
   sample questions, unknown id ⇒ "not found", invented id blocked, loop limit,
@@ -293,6 +297,8 @@ Loop for every change: **branch, change, test, commit, PR, merge, deploy.**
 - **PR base is `main`:** GitHub's yellow banner defaults to it. Change base to `develop`.
 - **Docker "daemon not running":** start Docker Desktop and wait for "Engine running".
 - **CORS error:** `ALLOWED_ORIGINS` must contain the frontend URL exactly (no trailing slash).
+- **"AI service is not available" with OpenAI:** open the billing page; `credit_balance_exhausted` means the account has no credits.
+- **"local AI (Ollama) is not reachable":** start Ollama (`ollama serve` or the tray app) and check `ollama list` shows the model.
 - **Agent invents things:** the grounding check must run and the prompt must say "tool results only".
 - **LangSmith shows nothing:** the variables must be in the process environment, not only in a file.
 - **Key leaked:** revoke it immediately, then remove it from git history.
