@@ -4,6 +4,7 @@ import type { Priority, Requirement, RequirementStatus } from '../api/types'
 import { Badge } from '../components/Badge'
 import { EmptyState, ErrorNotice, Spinner } from '../components/Feedback'
 import { ImpactCard } from '../components/ImpactCard'
+import { Stats } from '../components/Stats'
 import { useApp } from '../context'
 import { useAsync } from '../hooks/useAsync'
 import { formatTime, humanize } from '../lib/format'
@@ -157,6 +158,9 @@ function RequirementDetail({ requirement }: { requirement: Requirement }) {
 
 // ---------- the list ----------
 
+const count = (items: Requirement[], status: RequirementStatus) =>
+  items.filter((item) => item.status === status).length
+
 export function RequirementsPage() {
   const { refreshKey } = useApp()
   const requirements = useAsync(api.listRequirements, [refreshKey])
@@ -179,7 +183,24 @@ export function RequirementsPage() {
 
   return (
     <section className="page" aria-labelledby="req-title">
-      <h2 id="req-title">Requirements</h2>
+      <header className="page-header">
+        <h2 id="req-title">Requirements</h2>
+        <p className="lead">What the product must do, with its test cases and the impact of each change.</p>
+      </header>
+      {requirements.data && (
+        <Stats
+          items={[
+            { label: 'Total', value: requirements.data.length },
+            { label: 'Verified', value: count(requirements.data, 'verified'), tone: 'green' },
+            {
+              label: 'In progress',
+              value: count(requirements.data, 'approved') + count(requirements.data, 'implemented'),
+              tone: 'blue',
+            },
+            { label: 'Draft', value: count(requirements.data, 'draft'), tone: 'amber' },
+          ]}
+        />
+      )}
       <div className="toolbar">
         <label>
           Search

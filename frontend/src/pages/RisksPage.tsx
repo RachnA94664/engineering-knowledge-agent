@@ -3,6 +3,7 @@ import { api, ApiError } from '../api/client'
 import type { Risk, RiskLevel } from '../api/types'
 import { Badge } from '../components/Badge'
 import { EmptyState, ErrorNotice, Spinner } from '../components/Feedback'
+import { Stats } from '../components/Stats'
 import { useApp } from '../context'
 import { useAsync } from '../hooks/useAsync'
 
@@ -72,11 +73,26 @@ export function RisksPage() {
 
   return (
     <section className="page" aria-labelledby="risk-title">
-      <h2 id="risk-title">Risks</h2>
-      <p className="lead">
-        A risk is flagged for review automatically when a change affects its requirement. Only a
-        person can clear the flag.
-      </p>
+      <header className="page-header">
+        <h2 id="risk-title">Risks</h2>
+        <p className="lead">
+          A risk is flagged for review automatically when a change affects its requirement. Only a
+          person can clear the flag.
+        </p>
+      </header>
+      {risks.data && !level && !needsReview && (
+        <Stats
+          items={[
+            { label: 'Risks', value: risks.data.length },
+            { label: 'High', value: risks.data.filter((item) => item.level === 'high').length, tone: 'red' },
+            {
+              label: 'Need review',
+              value: risks.data.filter((item) => item.needs_review).length,
+              tone: 'amber',
+            },
+          ]}
+        />
+      )}
       <div className="toolbar">
         <label>
           Level

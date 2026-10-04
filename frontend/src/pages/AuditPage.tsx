@@ -19,11 +19,13 @@ export function AuditPage() {
 
   return (
     <section className="page" aria-labelledby="audit-title">
-      <h2 id="audit-title">Audit log</h2>
-      <p className="lead">
-        Every change is recorded: who did it, when, and what it was before and after. The log cannot
-        be edited or deleted.
-      </p>
+      <header className="page-header">
+        <h2 id="audit-title">Audit log</h2>
+        <p className="lead">
+          Every change is recorded: who did it, when, and what it was before and after. The log
+          cannot be edited or deleted.
+        </p>
+      </header>
       <div className="toolbar">
         <label>
           Record

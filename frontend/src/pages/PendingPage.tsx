@@ -53,15 +53,18 @@ export function PendingPage() {
 
   return (
     <section className="page" aria-labelledby="pending-title">
-      <div className="page-head">
-        <h2 id="pending-title">Pending changes</h2>
-        <button type="button" className="btn btn-small" onClick={reload}>
+      <header className="page-header page-header-row">
+        <div>
+          <h2 id="pending-title">Pending changes</h2>
+          <p className="lead">
+            Proposals wait here until a person confirms or rejects them. Nothing is applied before
+            that.
+          </p>
+        </div>
+        <button type="button" className="btn" onClick={reload}>
           Refresh
         </button>
-      </div>
-      <p className="lead">
-        Proposals wait here until a person confirms or rejects them. Nothing is applied before that.
-      </p>
+      </header>
 
       {!ready && !error && <Spinner />}
       {error && <ErrorNotice error={error} onRetry={reload} />}

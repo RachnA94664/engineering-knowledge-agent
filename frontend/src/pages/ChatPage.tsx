@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 
 import { api, ApiError } from '../api/client'
 import type { ChatResult } from '../api/types'
 import { Badge } from '../components/Badge'
+import { Icon } from '../components/Icon'
 import { RecordList, ToolTrace } from '../components/Evidence'
 import { ProposalCard } from '../components/ProposalCard'
 import { MESSAGE_MAX_LENGTH } from '../lib/format'
@@ -95,19 +96,21 @@ export function ChatPage() {
 
   return (
     <section className="page chat" aria-labelledby="chat-title">
-      <h2 id="chat-title">Ask the knowledge base</h2>
-      <p className="lead">
-        Answers come only from the database. The AI can <strong>propose</strong> a change, but a
-        person must confirm it.
-      </p>
+      <header className="page-header">
+        <h2 id="chat-title">Ask the knowledge base</h2>
+        <p className="lead">
+          Answers come only from the database. The AI can <strong>propose</strong> a change, but a
+          person must confirm it.
+        </p>
+      </header>
 
       <div className="conversation" aria-live="polite">
         {turns.length === 0 && (
           <div className="suggestions">
-            <p className="muted">Try one of these:</p>
-            <div className="chip-row">
+            <p className="suggestions-title">Try asking</p>
+            <div className="suggestion-grid">
               {SUGGESTIONS.map((text) => (
-                <button key={text} type="button" className="chip-button" onClick={() => void send(text)}>
+                <button key={text} type="button" className="suggestion" onClick={() => void send(text)}>
                   {text}
                 </button>
               ))}
@@ -126,6 +129,10 @@ export function ChatPage() {
             )}
             {turn.role === 'assistant' && turn.result && (
               <div className="bubble bubble-assistant">
+                <span className="avatar" aria-hidden="true">
+                  <Icon name="spark" size={14} />
+                </span>
+                <div className="bubble-body">
                 <div className="answer">{turn.text}</div>
                 <div className="verdict">
                   <Badge value={turn.result.intent} />
@@ -136,6 +143,7 @@ export function ChatPage() {
                 {turn.result.pending_changes.map((proposal) => (
                   <ProposalCard key={proposal.change.id} change={proposal.change} preview={proposal.preview} />
                 ))}
+                </div>
               </div>
             )}
           </div>
@@ -144,7 +152,7 @@ export function ChatPage() {
         {busy && (
           <div className="turn" role="status">
             <div className="bubble bubble-assistant thinking">
-              <span className="spinner" aria-hidden="true" /> Thinking… {elapsed}s
+              <span className="spinner" aria-hidden="true" /> Thinking… {elapsed}s <span className="muted">(a small local model can take a minute)</span>
               <button type="button" className="btn btn-small" onClick={() => abortRef.current?.abort()}>
                 Cancel
               </button>
@@ -158,22 +166,29 @@ export function ChatPage() {
         <label htmlFor="message" className="visually-hidden">
           Your message
         </label>
-        <textarea
-          id="message"
-          rows={2}
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Ask a question, or say what to change…  (Enter to send, Shift+Enter for a new line)"
-          aria-invalid={tooLong}
-        />
-        <div className="composer-row">
-          <span className={tooLong ? 'counter counter-bad' : 'counter'}>
-            {input.length}/{MESSAGE_MAX_LENGTH}
-          </span>
-          <button type="submit" className="btn btn-primary" disabled={busy || !input.trim() || tooLong}>
-            Send
-          </button>
+        <div className="composer-box">
+          <textarea
+            id="message"
+            rows={2}
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Ask a question, or say what to change…  (Enter to send, Shift+Enter for a new line)"
+            aria-invalid={tooLong}
+          />
+          <div className="composer-row">
+            <span className={tooLong ? 'counter counter-bad' : 'counter'}>
+              {input.length}/{MESSAGE_MAX_LENGTH}
+            </span>
+            <button
+              type="submit"
+              className="btn btn-primary btn-send"
+              aria-label="Send"
+              disabled={busy || !input.trim() || tooLong}
+            >
+              <Icon name="send" size={16} />
+            </button>
+          </div>
         </div>
       </form>
     </section>
