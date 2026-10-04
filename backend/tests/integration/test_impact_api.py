@@ -137,3 +137,21 @@ def test_the_new_endpoints_are_documented(api):
     paths = api.get("/openapi.json").json()["paths"]
     assert "get" in paths["/requirements/{requirement_id}/impact"]
     assert "post" in paths["/risks/{risk_id}/reviewed"]
+
+
+# ---------- filtering risks by the review flag ----------
+
+
+def test_risks_can_be_filtered_by_the_review_flag(api):
+    assert api.get("/risks", params={"needs_review": "true"}).json() == []
+    propose_and_confirm(api, "REQ-009", {"description": NEW_TEXT})
+
+    flagged = api.get("/risks", params={"needs_review": "true"}).json()
+    unflagged = api.get("/risks", params={"needs_review": "false"}).json()
+
+    assert [r["id"] for r in flagged] == ["RISK-003"]
+    assert len(unflagged) == 11 and "RISK-003" not in [r["id"] for r in unflagged]
+
+
+def test_a_bad_review_filter_value_is_422(api):
+    assert api.get("/risks", params={"needs_review": "maybe"}).status_code == 422

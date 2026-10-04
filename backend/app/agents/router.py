@@ -3,6 +3,7 @@
 Intents:
   query         read or search the data
   update        propose a change to a requirement
+  analysis      explain what a confirmed change to a requirement affected (impact report)
   out_of_scope  not about our data (or the AI could not tell)
   refused       something the system never does (delete, confirm/reject by chat)
 """
@@ -35,6 +36,10 @@ QUESTION_START = re.compile(
 UPDATE_VERB = re.compile(
     r"\b(update|change|set|mark|move|promote|rename|edit|modify|make|approve)\b", FLAGS
 )
+IMPACT_WORDS = re.compile(
+    r"\b(impact|impacts|affect|affects|affected|affecting|ripple|downstream|fallout)\b", FLAGS
+)
+REQ_ID_FOUND = re.compile(r"\bREQ-[0-9]{3}\b", FLAGS)
 FIELD_WORD = re.compile(r"\b(status|priority|title|description)\b", FLAGS)
 DATA_WORDS = re.compile(
     r"\b(requirements?|test cases?|tests?|risks?|audit|history|high[- ]risk|without)\b", FLAGS
@@ -43,7 +48,7 @@ DATA_WORDS = re.compile(
 
 @dataclass(frozen=True)
 class Route:
-    intent: str  # query | update | out_of_scope | refused
+    intent: str  # query | update | analysis | out_of_scope | refused
     reason: str
     used_llm: bool = False
 
@@ -56,6 +61,11 @@ def route_by_rules(message: str) -> Route | None:
         return Route("refused", "I can only propose changes; a person confirms them in the app")
 
     has_id = bool(ID_PATTERN.search(message))
+    # "What is the impact of REQ-009?" / "Which tests are affected by REQ-009?" (a requirement
+    # must be named, otherwise there is nothing to look up). Checked before the generic
+    # question rule, because these questions also start with "what" or "which".
+    if IMPACT_WORDS.search(message) and REQ_ID_FOUND.search(message):
+        return Route("analysis", "asks what a confirmed change affected")
     if QUESTION_START.match(message):
         return Route("query", "reads like a question or a request to show data")
     if UPDATE_VERB.search(message) and (has_id or FIELD_WORD.search(message)):

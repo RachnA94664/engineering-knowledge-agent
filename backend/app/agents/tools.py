@@ -54,6 +54,10 @@ class RiskListArgs(_Args):
     level: Literal["low", "medium", "high"] | None = Field(
         default=None, description="Only risks of this level. Omit for all risks."
     )
+    needs_review: bool | None = Field(
+        default=None,
+        description="true: only risks flagged for review after a confirmed change. Omit for all.",
+    )
 
 
 class AuditArgs(_Args):
@@ -153,9 +157,10 @@ GET_TEST_CASES = make_tool(
 )
 LIST_RISKS = make_tool(
     "list_risks",
-    "List risk items with their score and level, highest first. Optionally only one level.",
+    "List risk items with their score, level and needs_review flag, highest first. "
+    "Optionally only one level, or only the risks flagged for review.",
     RiskListArgs,
-    lambda s, a: knowledge.list_risks(s, a.level),
+    lambda s, a: knowledge.list_risks(s, a.level, a.needs_review),
 )
 LIST_WITHOUT_TESTS = make_tool(
     "list_requirements_without_tests",
@@ -168,6 +173,13 @@ GET_AUDIT_LOG = make_tool(
     "Show recent changes recorded in the audit log, newest first.",
     AuditArgs,
     lambda s, a: knowledge.audit_log(s, a.limit, a.entity_id),
+)
+GET_IMPACT = make_tool(
+    "get_impact",
+    "Get the latest impact report for a requirement: what its last confirmed change affected "
+    "(test cases reset, risks flagged for review, warnings, impact level).",
+    RequirementIdArgs,
+    lambda s, a: knowledge.get_impact(s, a.requirement_id),
 )
 PROPOSE_CHANGE = make_tool(
     "propose_requirement_change",
@@ -188,3 +200,4 @@ READ_TOOLS: tuple[StructuredTool, ...] = (
     GET_AUDIT_LOG,
 )
 UPDATE_TOOLS: tuple[StructuredTool, ...] = (GET_REQUIREMENT, PROPOSE_CHANGE)
+ANALYSIS_TOOLS: tuple[StructuredTool, ...] = (GET_REQUIREMENT, GET_IMPACT)

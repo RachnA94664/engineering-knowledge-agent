@@ -38,13 +38,18 @@ def list_requirements_without_tests(session: Session) -> list[dict]:
     return [ser.requirement_to_dict(r) for r in req_repo.list_without_tests(session)]
 
 
-def list_risks(session: Session, level: str | None = None) -> list[dict]:
-    """All risks, highest score first; optionally only one level (low/medium/high)."""
+def list_risks(
+    session: Session, level: str | None = None, needs_review: bool | None = None
+) -> list[dict]:
+    """All risks, highest score first. Optionally only one level (low/medium/high), and/or only
+    the risks flagged (or not flagged) for review by the impact analysis."""
     if level is not None and level not in RISK_LEVELS:
         raise ValidationError(f"level must be one of {RISK_LEVELS}, got {level!r}")
     items = [ser.risk_to_dict(r) for r in risk_repo.list_all(session)]
     if level is not None:
         items = [r for r in items if r["level"] == level]
+    if needs_review is not None:
+        items = [r for r in items if r["needs_review"] is needs_review]
     return sorted(items, key=lambda r: (-r["score"], r["id"]))
 
 

@@ -59,9 +59,13 @@ def requirement_impact(requirement_id: str, session: SessionDep):
 
 
 @router.get("/risks", response_model=list[RiskOut], responses={422: ERRORS[422]}, tags=["risks"])
-def list_risks(session: SessionDep, level: str | None = None):
-    """Risk items, highest score first. Filter with ?level=high (low, medium or high)."""
-    return knowledge.list_risks(session, level)
+def list_risks(session: SessionDep, level: str | None = None, needs_review: bool | None = None):
+    """Risk items, highest score first.
+
+    Filter with ?level=high (low, medium or high) and/or ?needs_review=true to see the risks
+    that a confirmed change flagged for review.
+    """
+    return knowledge.list_risks(session, level, needs_review)
 
 
 @router.get(
