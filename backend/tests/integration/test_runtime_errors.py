@@ -1,6 +1,7 @@
 """What the runtime does when the AI provider misbehaves (all simulated, no network)."""
 
 import httpx
+import ollama
 import openai
 import pytest
 
@@ -85,3 +86,37 @@ def test_the_retry_happens_only_once(seeded):
     with pytest.raises(ServiceUnavailable):
         AgentRuntime(provider).run(seeded, "Show me REQ-001")
     assert provider.dropped == 1
+
+
+# ---------- a local AI (Ollama) that is not running or too slow ----------
+
+
+class LocalProvider:
+    """Stands in for OllamaModelProvider: a model plus its helpful 'is Ollama running?' text."""
+
+    unavailable_message = "the local AI (Ollama, model 'qwen2.5:3b') is not reachable."
+
+    def __init__(self, model):
+        self._model = model
+
+    def __call__(self):
+        return self._model
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ConnectionError("Failed to connect to Ollama at http://localhost:11434"),
+        httpx.ConnectError("connection refused"),
+        httpx.ReadTimeout("timed out"),
+        ollama.ResponseError("model 'qwen2.5:3b' not found, try pulling it first", 404),
+    ],
+)
+def test_local_ai_failures_become_one_safe_message_with_a_hint(seeded, failure):
+    runtime = AgentRuntime(LocalProvider(ScriptedChatModel(failure)))
+
+    with pytest.raises(ServiceUnavailable) as exc:
+        runtime.run(seeded, "Show me REQ-001")
+
+    assert "Ollama" in exc.value.message  # tells the user what to check
+    assert "localhost" not in exc.value.message and "pulling" not in exc.value.message

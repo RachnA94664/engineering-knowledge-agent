@@ -2,7 +2,8 @@
 
 import pytest
 
-from app.agents.llm import OpenAIModelProvider
+from app.agents.llm import OllamaModelProvider, OpenAIModelProvider, build_model_provider
+from app.core.config import get_settings
 from app.domain.errors import ServiceUnavailable
 
 
@@ -37,3 +38,58 @@ def test_temperature_can_be_dropped_once_for_models_that_reject_it():
     second = p()
     assert second is not first and second.temperature is None
     assert p.drop_temperature() is False  # nothing left to drop: no endless retries
+
+
+# ---------- Ollama: a free model running on your own PC ----------
+
+
+def ollama_provider():
+    return OllamaModelProvider(
+        model="qwen2.5:3b",
+        base_url="http://localhost:11434",
+        timeout=120,
+        max_output_tokens=300,
+        num_ctx=4096,
+    )
+
+
+def test_the_local_model_is_built_with_our_limits_and_needs_no_key():
+    model = ollama_provider()()  # constructing it does not contact the server
+    assert model.model == "qwen2.5:3b"
+    assert model.base_url == "http://localhost:11434"
+    assert model.temperature == 0
+    assert model.num_predict == 300  # the cap on one answer
+    assert model.num_ctx == 4096
+
+
+def test_the_local_model_is_created_once_and_reused():
+    p = ollama_provider()
+    assert p() is p()
+
+
+def test_the_local_provider_explains_how_to_fix_an_outage():
+    message = ollama_provider().unavailable_message
+    assert "Ollama" in message and "qwen2.5:3b" in message
+
+
+@pytest.mark.parametrize(
+    "setting,expected",
+    [("ollama", OllamaModelProvider), ("openai", OpenAIModelProvider)],
+)
+def test_the_ai_is_chosen_by_the_llm_provider_setting(monkeypatch, setting, expected):
+    monkeypatch.setenv("LLM_PROVIDER", setting)
+    get_settings.cache_clear()
+    try:
+        assert isinstance(build_model_provider(), expected)
+    finally:
+        get_settings.cache_clear()
+
+
+def test_an_unknown_provider_name_is_rejected(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "skynet")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ValueError):
+            get_settings()
+    finally:
+        get_settings.cache_clear()
