@@ -323,6 +323,7 @@ Loop for every change: **branch, change, test, commit, PR, merge, deploy.**
 - **"AI service is not available" with OpenAI:** open the billing page; `credit_balance_exhausted` means the account has no credits.
 - **"local AI (Ollama) is not reachable":** start Ollama (`ollama serve` or the tray app) and check `ollama list` shows the model.
 - **/chat shows a long ToolInvocationError:** the AI used wrong argument names. Simple commands avoid this (rules); otherwise rephrase as `Set REQ-006 priority to high`.
+- **Many endpoints return 500 after pulling new code:** your database is behind the code. Open `/health`: it now says `the database schema is out of date ... run 'alembic upgrade head'` (the server also logs `STARTUP WARNING` when it starts). Run `alembic upgrade head` in `backend`, then restart.
 - **Migration fails with `FOREIGN KEY constraint failed ... DROP TABLE`:** Alembic rebuilt a table because a new column's default was a SQL expression. Use a plain constant default (`server_default="0"`).
 - **A timestamp has no `+00:00`:** SQLite drops timezones; use the `UTCDateTime` column type.
 - **Confirm says "change N does not exist":** you used the *requirement* number (007) instead of the *change id* returned by the propose call.
