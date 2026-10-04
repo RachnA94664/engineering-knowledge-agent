@@ -81,3 +81,37 @@ def test_the_read_agent_has_no_write_tool():
 def test_the_update_agent_can_only_propose():
     writers = [t.name for t in tools.UPDATE_TOOLS if tools.is_write_tool(t)]
     assert writers == ["propose_requirement_change"]
+
+
+# ---------- the impact tool ----------
+
+
+def test_the_impact_tool_returns_the_stored_report_or_a_readable_error(seeded):
+    missing = run(tools.GET_IMPACT, seeded, requirement_id="REQ-009")
+    assert missing.artifact["ok"] is False
+    assert missing.artifact["error"]["code"] == "not_found"
+
+    pid = knowledge_changes_confirm(seeded)
+    found = run(tools.GET_IMPACT, seeded, requirement_id="REQ-009")
+    assert found.artifact["ok"] is True
+    assert found.artifact["result"]["change_id"] == pid
+
+
+def knowledge_changes_confirm(seeded) -> int:
+    from app.services import changes
+
+    pid = changes.propose_requirement_change(
+        seeded, "REQ-009", {"description": "A new, different description."}, proposed_by="x"
+    )["change"]["id"]
+    changes.confirm_change(seeded, pid, actor="x")
+    return pid
+
+
+def test_the_analysis_agent_has_only_reading_tools():
+    assert not any(tools.is_write_tool(t) for t in tools.ANALYSIS_TOOLS)
+    assert [t.name for t in tools.ANALYSIS_TOOLS] == ["get_requirement", "get_impact"]
+
+
+def test_the_risk_list_tool_offers_the_review_filter(seeded):
+    props = convert_to_openai_tool(tools.LIST_RISKS)["function"]["parameters"]["properties"]
+    assert set(props) == {"level", "needs_review"}

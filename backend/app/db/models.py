@@ -8,6 +8,7 @@ domain and service layers.
 from datetime import UTC, datetime
 
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -15,10 +16,36 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import TypeDecorator
 
 from app.domain import enums
+
+
+class UTCDateTime(TypeDecorator):
+    """A timestamp that is ALWAYS stored and returned as UTC with its timezone attached.
+
+    SQLite has no timezone support: it silently drops the timezone when saving, so a value read
+    back looked different from the one just saved ("...+00:00" vs no suffix). This type stores
+    UTC and puts the timezone back on every read, so all timestamps look the same everywhere.
+    """
+
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            raise ValueError("timestamps must carry a timezone (use datetime.now(UTC))")
+        return value.astimezone(UTC)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -49,8 +76,8 @@ class Requirement(Base):
     priority: Mapped[str] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(16))
     version: Mapped[int] = mapped_column(Integer, default=1)  # optimistic locking
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now)
 
     test_cases: Mapped[list["TestCase"]] = relationship(back_populates="requirement")
     risk_links: Mapped[list["RequirementRisk"]] = relationship(back_populates="requirement")
@@ -94,6 +121,11 @@ class RiskItem(Base):
     severity: Mapped[int] = mapped_column(Integer)
     likelihood: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(16), default="open")
+    # Set automatically when a confirmed requirement change may affect this risk; a person
+    # clears it after reviewing the risk.
+    needs_review: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="0", nullable=False
+    )
 
     requirement_links: Mapped[list["RequirementRisk"]] = relationship(back_populates="risk")
 
@@ -125,7 +157,7 @@ class AuditLog(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    ts: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now)
     actor: Mapped[str] = mapped_column(String(64))
     source: Mapped[str] = mapped_column(String(16))
     entity_type: Mapped[str] = mapped_column(String(32))
@@ -151,5 +183,28 @@ class PendingChange(Base):
     base_version: Mapped[int] = mapped_column(Integer)
     proposed_by: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16), default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
+class ImpactReport(Base):
+    """The result of the automatic impact analysis run when a change is confirmed.
+
+    One report per applied change (`change_id` is unique), so confirming twice never makes a
+    second one. The full detail is stored as JSON text; `level` is also a column so it can be
+    filtered and is protected by a CHECK constraint.
+    """
+
+    __tablename__ = "impact_reports"
+    __table_args__ = (
+        CheckConstraint(_in("level", enums.IMPACT_LEVELS), name="ck_impact_reports_level"),
+        UniqueConstraint("change_id", name="uq_impact_reports_change_id"),
+        Index("ix_impact_reports_requirement_id", "requirement_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    requirement_id: Mapped[str] = mapped_column(ForeignKey("requirements.id", ondelete="RESTRICT"))
+    change_id: Mapped[int] = mapped_column(ForeignKey("pending_changes.id", ondelete="RESTRICT"))
+    level: Mapped[str] = mapped_column(String(16))
+    report: Mapped[str] = mapped_column(Text)  # JSON text
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), default=_now)

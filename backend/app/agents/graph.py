@@ -3,8 +3,11 @@
     START -> route -+-> refuse ------------------------------------------> END
                     +-> query_agent  <-> query_tools  -> finalize_query ---> END
                     +-> update_prepare -+-> update_tools -> finalize_update -> END   (rules)
-                                        +-> update_agent <-> update_tools
-                                                         -> finalize_update -> END   (AI)
+                    |                   +-> update_agent <-> update_tools
+                    |                                    -> finalize_update -> END   (AI)
+                    +-> analysis_prepare -+-> analysis_tools -> finalize_analysis -> END (rules)
+                                          +-> analysis_agent <-> analysis_tools
+                                                          -> finalize_analysis -> END (AI)
 
 LangGraph runs the graph (nodes, edges, tool execution, tracing). The SAFETY RULES are
 ordinary code inside the nodes: refusals before any AI call, each agent's tool allow-list,
@@ -28,8 +31,14 @@ from app.agents.events import (
 from app.agents.grounding import ungrounded_ids
 from app.agents.llm import ModelFactory
 from app.agents.prompt_loader import load_prompt
-from app.agents.router import route_by_rules, route_with_llm
-from app.agents.tools import PROPOSE_CHANGE, READ_TOOLS, UPDATE_TOOLS
+from app.agents.router import REQ_ID_FOUND, route_by_rules, route_with_llm
+from app.agents.tools import (
+    ANALYSIS_TOOLS,
+    GET_IMPACT,
+    PROPOSE_CHANGE,
+    READ_TOOLS,
+    UPDATE_TOOLS,
+)
 from app.agents.update_parser import parse_simple_update
 
 MAX_ROUNDS = 4  # rounds of tool use per message
@@ -45,7 +54,7 @@ class AgentState(MessagesState):
     rounds: int  # how many times the agent has asked for tools
     answer: str  # the final answer shown to the user
     grounded: bool  # True if the answer is backed by database results
-    direct: bool  # True if plain rules (not the AI) prepared the update
+    direct: bool  # True if plain rules (not the AI) prepared the tool call
 
 
 def _last_human_text(state: AgentState) -> str:
@@ -120,12 +129,35 @@ def update_prepare_node(state: AgentState) -> dict:
     return {"messages": [call], "direct": True, "rounds": 1}
 
 
+def analysis_prepare_node(state: AgentState) -> dict:
+    """What is the impact of REQ-009? This names exactly one requirement: read its stored report.
+
+    The report was written by rules when the change was confirmed, so no AI is needed to look
+    it up or to describe it. Unusual questions (several requirements, no id) go to the AI.
+    """
+    ids = sorted({m.upper() for m in REQ_ID_FOUND.findall(_last_human_text(state))})
+    if len(ids) != 1:
+        return {"direct": False}
+    call = AIMessage(
+        content="",
+        tool_calls=[
+            {
+                "name": GET_IMPACT.name,
+                "args": {"requirement_id": ids[0]},
+                "id": "rules-1",
+                "type": "tool_call",
+            }
+        ],
+    )
+    return {"messages": [call], "direct": True, "rounds": 1}
+
+
 def after_prepare(state: AgentState) -> str:
     return "tools" if state.get("direct") else "agent"
 
 
-def after_update_tools(state: AgentState) -> str:
-    """After the rules-made proposal there is nothing for the AI to add: finish."""
+def after_direct_tools(state: AgentState) -> str:
+    """After a rules-made tool call there is nothing for the AI to add: finish."""
     return "finalize" if state.get("direct") else "agent"
 
 
@@ -191,6 +223,27 @@ def finalize_update(state: AgentState) -> dict:
     return {"answer": answers.NEEDS_DETAILS_ANSWER, "grounded": False}
 
 
+def finalize_analysis(state: AgentState) -> dict:
+    """Describe the stored impact report.
+
+    When rules made the lookup, the answer is written HERE from the report itself, so it can
+    never contain an invented test, risk or level. When the AI made the lookup (an unusual
+    question), its text goes through the same grounding check as every other answer.
+    """
+    if not state.get("direct"):
+        return finalize_query(state)
+    events = [e for e in tool_events(state["messages"]) if e.name == GET_IMPACT.name]
+    event = events[-1]
+    if not event.ok:  # e.g. "no impact report exists for REQ-009 yet: a confirmed change ..."
+        return {"answer": f"{event.error}.", "grounded": True}
+    report = event.result
+    answer = (
+        f"Latest confirmed change to {report['requirement_id']} "
+        f"(change #{report['change_id']}): {report['summary']}"
+    )
+    return {"answer": answer, "grounded": True}
+
+
 # ---------- wiring ----------
 
 
@@ -198,6 +251,8 @@ def pick_lane(state: AgentState) -> str:
     intent = state["intent"]
     if intent in ("refused", "out_of_scope"):
         return "refuse"
+    if intent == "analysis":
+        return "analysis"
     return "update" if intent == "update" else "query"
 
 
@@ -217,9 +272,23 @@ def build_graph(get_model: ModelFactory):
     graph.add_node("update_tools", ToolNode(list(UPDATE_TOOLS), handle_tool_errors=True))
     graph.add_node("finalize_update", finalize_update)
 
+    graph.add_node("analysis_prepare", analysis_prepare_node)
+    graph.add_node(
+        "analysis_agent", make_agent_node(get_model, load_prompt("analysis"), ANALYSIS_TOOLS)
+    )
+    graph.add_node("analysis_tools", ToolNode(list(ANALYSIS_TOOLS), handle_tool_errors=True))
+    graph.add_node("finalize_analysis", finalize_analysis)
+
     graph.add_edge(START, "route")
     graph.add_conditional_edges(
-        "route", pick_lane, {"refuse": "refuse", "query": "query_agent", "update": "update_prepare"}
+        "route",
+        pick_lane,
+        {
+            "refuse": "refuse",
+            "query": "query_agent",
+            "update": "update_prepare",
+            "analysis": "analysis_prepare",
+        },
     )
     graph.add_edge("refuse", END)
 
@@ -238,8 +307,22 @@ def build_graph(get_model: ModelFactory):
         "update_agent", after_agent, {"tools": "update_tools", "finalize": "finalize_update"}
     )
     graph.add_conditional_edges(
-        "update_tools", after_update_tools, {"agent": "update_agent", "finalize": "finalize_update"}
+        "update_tools", after_direct_tools, {"agent": "update_agent", "finalize": "finalize_update"}
     )
     graph.add_edge("finalize_update", END)
+
+    # Analysis lane: rules read the stored report; the AI only for unusual questions.
+    graph.add_conditional_edges(
+        "analysis_prepare", after_prepare, {"tools": "analysis_tools", "agent": "analysis_agent"}
+    )
+    graph.add_conditional_edges(
+        "analysis_agent", after_agent, {"tools": "analysis_tools", "finalize": "finalize_analysis"}
+    )
+    graph.add_conditional_edges(
+        "analysis_tools",
+        after_direct_tools,
+        {"agent": "analysis_agent", "finalize": "finalize_analysis"},
+    )
+    graph.add_edge("finalize_analysis", END)
 
     return graph.compile(name="knowledge_agent")

@@ -54,7 +54,7 @@ frontend/src/{api,components,pages}/        plan/        .github/workflows/
 ## 3. Database design ✅
 
 Tables: `requirements`, `test_cases`, `risk_items`, `requirement_risks` (many-to-many),
-`audit_log`, `pending_changes`.
+`audit_log`, `pending_changes`, `impact_reports`.
 
 - IDs are `REQ-###`, `TC-###`, `RISK-###` (CHECK constraints plus domain validation).
 - Foreign keys on, `ON DELETE RESTRICT`; `PRAGMA foreign_keys=ON` on every connection.
@@ -63,6 +63,10 @@ Tables: `requirements`, `test_cases`, `risk_items`, `requirement_risks` (many-to
   below 8 low), never stored, so they cannot drift.
 - `audit_log` is **append-only**, enforced by database triggers.
 - `pending_changes` holds proposals awaiting a human decision.
+- `impact_reports` holds one report per applied change (`change_id` is UNIQUE, so confirming
+  twice cannot make a second one). `risk_items.needs_review` is the flag a person clears.
+- Every timestamp is stored and returned as UTC with its timezone (SQLite drops it, so a
+  custom column type puts it back; naive datetimes are refused).
 - Seed data is validated by the same rules before insertion; bad rows are reported and skipped.
 
 ## 4. Rules and guardrails ✅
@@ -97,6 +101,8 @@ START ─► route ─┬─► refuse ─────────────�
 | `*_agent` | The chat model, bound to **only that agent's tools** |
 | `*_tools` | LangGraph `ToolNode` running our tools (each tool wraps a service) |
 | `finalize_query` | Grounding check: every `REQ/TC/RISK` id in the answer must appear in tool output, else the answer is blocked and only the real records are shown. No tool call ⇒ no answer |
+| `analysis_prepare` | "What is the impact of REQ-009?" names one requirement: the stored report is read directly (no AI). Several requirements or unusual wording go to the analysis agent |
+| `finalize_analysis` | Rules path: the answer is the report's own summary sentence, so nothing can be invented. AI path: the same grounding check as a query |
 | `finalize_update` | Reply written **by code** from the proposal result, so it can never claim a change was applied |
 | `finalize_analysis` | Impact summary from the deterministic impact report |
 
@@ -143,13 +149,36 @@ reliable at calling tools, but every safety check still applies to whatever they
 `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`). Each run is tagged with the intent. Traces
 contain question and record text, so only dummy data is used.
 
-## 6. Automated workflow: impact analysis ⬜
+## 6. Automated workflow: impact analysis ✅
 
-When a change is **confirmed**, in the same transaction the system finds linked test cases
-(passing ones become `not_run`) and linked risks (flagged for review), computes an impact
-level (high for critical requirements or description changes), saves a report and links it
-to the audit entry. The Analysis agent turns the stored report into a short summary; the
-LLM never decides the impact. Re-confirming a change does nothing.
+When a change is **confirmed**, the system analyses what it affected, in the same all-or-nothing
+transaction as the change (`services/changes.py` calls `services/impact.py`). The rules are in
+one pure file, `domain/impact.py`:
+
+| Change | Test cases | Linked risks |
+|---|---|---|
+| description edited | passing tests reset to `not_run` | flagged for review |
+| priority raised | unchanged | flagged for review |
+| status becomes obsolete | unchanged (note: may be retired) | flagged for review |
+| status becomes verified | unchanged | warning if tests are not all passing (or there are none) |
+| title edited, priority lowered, other status moves | unchanged | nothing |
+
+Closed risks are never flagged. A failing test is reported but never "improved" to `not_run`.
+
+**Impact level:** *low* if nothing is affected; *high* if something is affected and (the
+requirement is critical or its description changed); otherwise *medium*.
+
+**Records everything:** a stored `impact_report` (with a plain summary sentence), and one audit
+row for every automatic modification (each test reset, each risk flag, the report), attributed
+to `impact-analysis` with source `system` and `caused_by_change`, so it is traceable.
+
+**Safe by design:** atomic (a failure anywhere undoes the whole confirm, including the change);
+idempotent (confirming twice returns the same report and resets nothing again); a rejected or
+stale change creates no report. A person clears a risk's flag with `POST /risks/{id}/reviewed`.
+
+**Analysis agent:** rules read the stored report; the AI never decides the impact. The answer
+says "Latest confirmed change to REQ-009 (change #N)", because a report describes the last
+confirmed change and cannot predict a hypothetical one.
 
 ## 7. Write flow ✅
 
@@ -161,8 +190,9 @@ LLM never decides the impact. Re-confirming a change does nothing.
 ## 8. API ✅
 
 `GET /health`, `/requirements`, `/requirements/{id}`, `/requirements/without-tests`,
-`/requirements/{id}/test-cases`, `/risks?level=`, `/audit-log`, `/changes`;
-`POST /changes`, `/changes/{id}/confirm`, `/changes/{id}/reject`, `/chat`.
+`/requirements/{id}/test-cases`, `/requirements/{id}/impact`, `/risks?level=&needs_review=`,
+`/audit-log`, `/changes`; `POST /changes`, `/changes/{id}/confirm`, `/changes/{id}/reject`,
+`/risks/{id}/reviewed`, `/chat`.
 One error shape: `{"error": {"code", "message", "details"}}`.
 
 ## 9. Frontend ⬜
@@ -198,9 +228,10 @@ Impact report, Audit log. Loading, error and empty states everywhere.
 | 2 | `feature/domain-rules` | IDs, state machine, risk scoring | ✅ |
 | 3 | `feature/services-audit` | Repositories, propose/confirm/reject, audit log | ✅ |
 | 4 | `feature/api` | FastAPI app, errors, tests (+ docstrings PR) | ✅ |
-| 5 | `feature/langgraph-agents` | LangGraph graph, tools, grounding, `/chat`, fake-model tests | 🔄 live check with a real key pending |
+| 5 | `feature/langgraph-agents` | LangGraph graph, tools, grounding, `/chat`, fake-model tests, Ollama | ✅ |
+| 5b | `fix/update-agent-reliability` | Rules-first simple updates, friendly errors | ✅ |
 | 6 | `feature/tracing` | LangSmith tracing (optional, off by default) | ⬜ |
-| 7 | `feature/impact-workflow` | Impact analysis + Analysis agent | ⬜ |
+| 7 | `feature/impact-workflow` | Impact analysis, report, review flag, analysis lane, UTC timestamps | ✅ |
 | 8 | `feature/frontend` | React UI | ⬜ |
 | 9 | `feature/docker` | Dockerfiles, compose | ⬜ |
 | 10 | `feature/ci` | GitHub Actions | ⬜ |

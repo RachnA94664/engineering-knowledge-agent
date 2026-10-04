@@ -2,9 +2,10 @@
 
 The safety design:
   * propose  -> saves a PENDING change. Nothing is applied.
-  * confirm  -> ONE transaction: check version, apply, bump version, write audit.
+  * confirm  -> ONE transaction: check version, apply, bump version, audit, impact analysis.
   * reject   -> closes the pending change without applying it.
-Every step writes an audit row in the same transaction as the data change.
+Every step writes an audit row in the same transaction as the data change. Confirming also runs
+the automatic impact analysis (services/impact.py) in that same transaction.
 """
 
 import json
@@ -12,14 +13,16 @@ from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
-from app.domain import enums
-from app.domain.errors import Conflict, NotFound, ValidationError
+from app.domain.errors import Conflict, NotFound
 from app.domain.ids import ensure_valid_id
 from app.domain.requirement_rules import validate_patch
 from app.repositories import audit as audit_repo
+from app.repositories import impact as impact_repo
 from app.repositories import pending as pending_repo
 from app.repositories import requirements as req_repo
-from app.services.serializers import change_to_dict, requirement_to_dict
+from app.services import impact as impact_service
+from app.services.checks import check_who as _check_who
+from app.services.serializers import change_to_dict, impact_to_dict, requirement_to_dict
 from app.services.uow import unit_of_work
 
 ENTITY = "requirement"
@@ -28,20 +31,6 @@ ENTITY = "requirement"
 def _now() -> datetime:
     """Get the current time in UTC."""
     return datetime.now(UTC)
-
-
-def _check_who(actor: object, source: object) -> None:
-    """
-    Check the actor and source.
-
-    Args:
-        actor: The actor making the change.
-        source: The source of the change.
-    """
-    if not isinstance(actor, str) or not actor.strip():
-        raise ValidationError("actor must not be empty")
-    if source not in enums.AUDIT_SOURCES:
-        raise ValidationError(f"source must be one of {enums.AUDIT_SOURCES}, got {source!r}")
 
 
 def _get_change(session: Session, change_id: int):
@@ -127,7 +116,13 @@ def confirm_change(session: Session, change_id: int, *, actor: str, source: str 
     change = _get_change(session, change_id)
 
     if change.status == "applied":
-        return {"change": change_to_dict(change), "already_applied": True}
+        # Confirming again changes nothing and returns the SAME report (no second analysis).
+        stored = impact_repo.get_for_change(session, change_id)
+        return {
+            "change": change_to_dict(change),
+            "already_applied": True,
+            "impact": impact_to_dict(stored) if stored else None,
+        }
     if change.status != "pending":
         raise Conflict(f"change {change_id} is {change.status}, so it cannot be confirmed")
 
@@ -163,12 +158,24 @@ def confirm_change(session: Session, change_id: int, *, actor: str, source: str 
             old=old,
             new=clean,
         )
+
+        # The automatic workflow: find what this change affects and apply those effects. It
+        # runs in THIS transaction: if any part fails, the whole confirm is undone.
+        impact = impact_service.analyze_and_apply(
+            session,
+            requirement_id=req.id,
+            old_values=old,
+            new_values=clean,
+            priority_after=clean.get("priority", req.priority),
+            change_id=change.id,
+        )
         session.refresh(req)  # pick up the new version and values
 
     return {
         "change": change_to_dict(change),
         "already_applied": False,
         "requirement": requirement_to_dict(req),
+        "impact": impact,
     }
 
 

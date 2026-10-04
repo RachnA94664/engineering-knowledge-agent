@@ -50,7 +50,8 @@ def test_chat_update_proposes_and_a_person_then_confirms_over_the_api(api):
     assert api.get("/requirements/REQ-007").json()["status"] == "implemented"
 
     sources = [e["source"] for e in api.get("/audit-log", params={"entity_id": "REQ-007"}).json()]
-    assert sources == ["ui", "agent"]  # confirmed by a person (ui); proposed by the agent
+    # impact analysis (system), confirmed by a person (ui), proposed by the agent
+    assert sources == ["system", "ui", "agent"]
 
 
 def test_a_delete_request_is_refused_even_when_the_ai_is_unavailable(api):

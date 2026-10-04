@@ -45,6 +45,7 @@ def risk_to_dict(risk: models.RiskItem) -> dict:
         "status": risk.status,
         "score": score,  # derived, never stored
         "level": risk_level(score),  # derived, never stored
+        "needs_review": risk.needs_review,  # set by the impact analysis; cleared by a person
     }
 
 
@@ -74,4 +75,14 @@ def audit_to_dict(entry: models.AuditLog) -> dict:
         "old_value": json.loads(entry.old_value) if entry.old_value else None,
         "new_value": json.loads(entry.new_value) if entry.new_value else None,
         "request_id": entry.request_id,
+    }
+
+
+def impact_to_dict(row: models.ImpactReport) -> dict:
+    """The stored report, with its row id, change id and time added."""
+    return {
+        "id": row.id,
+        "change_id": row.change_id,
+        "created_at": _iso(row.created_at),
+        **json.loads(row.report),
     }
