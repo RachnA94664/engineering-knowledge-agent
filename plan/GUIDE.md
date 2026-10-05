@@ -18,7 +18,7 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 | 7 | LangSmith tracing | ⬜ |
 | 8 | Automated impact workflow | 🔄 |
 | 9 | Frontend | ✅ |
-| 10 | Docker | ⬜ |
+| 10 | Docker | ✅ |
 | 11 | CI | ⬜ |
 | 12 | Deployment | ⬜ |
 | 13 | README and polish | ⬜ |
@@ -274,16 +274,39 @@ Done when
 - [x] 25 tests, lint and build pass; verified live against the real backend and model
 - [ ] PR merged
 
-## Phase 10: Docker ⬜
+## Phase 10: Docker ✅
 
-Mini steps: backend Dockerfile (slim Python, pinned requirements, runs migrations and
-seeds on start, binds `$PORT`); frontend multi-stage Dockerfile (build with Node, serve
-with nginx); `.dockerignore` excludes `.env`; `docker-compose.yml`; `docker compose up
---build`.
+Run everything: `docker compose up --build`, then open http://localhost:8080 (UI) and
+http://localhost:8000/docs (API). Stop with `docker compose down` (data is kept in the
+`eka-data` volume; `docker compose down -v` also deletes the data).
+
+Files
+- `backend/Dockerfile`: slim Python 3.12, pinned requirements installed in their own layer
+  (fast rebuilds), runs as a non-root user. On every start it runs
+  `alembic upgrade head`, then `seed --if-empty` (safe to repeat), then uvicorn on `$PORT`
+  (Render-style hosts choose the port).
+- `frontend/Dockerfile`: two stages. Node builds the static files, a small nginx image
+  serves them (74 MB, no Node inside). `frontend/nginx.conf`: gzip, long cache for hashed
+  assets, no cache for `index.html`, basic security headers.
+- `docker-compose.yml`: backend + frontend, a named volume for the SQLite file, a health
+  check the frontend waits for, and `host.docker.internal` so the container can reach
+  Ollama on your PC.
+- `.dockerignore` (backend and frontend): `.env`, databases, logs, tests and caches never
+  enter an image.
+
+Things to know
+- `VITE_API_URL` is baked in at BUILD time (the browser, not the server, calls the API).
+  To point the UI at another API: `VITE_API_URL=https://api.example.com docker compose build frontend`.
+- Secrets are passed at run time from your shell or a root `.env` (for example
+  `OPENAI_API_KEY`), never baked into an image. `docker compose logs backend` shows the logs.
+- To use OpenAI in Docker: `LLM_PROVIDER=openai OPENAI_API_KEY=... docker compose up`.
 
 Done when
-- [ ] One command starts everything from scratch and the sample questions work
-- [ ] No secrets baked into an image; you can read `docker logs`
+- [x] One command starts everything from scratch and the sample questions work
+      (verified: migrations + seed ran, UI on 8080, chat answered through the container)
+- [x] No secrets baked into an image; you can read `docker logs`
+- [x] Data survives a restart; the second start skips the seed; CORS allows only the UI origin
+- [ ] PR merged
 
 ## Phase 11: CI ⬜
 

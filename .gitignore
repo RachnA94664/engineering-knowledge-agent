@@ -19,6 +19,8 @@ htmlcov/
 *.sqlite
 *.sqlite3
 
+*.log
+
 # Node / frontend
 node_modules/
 dist/
