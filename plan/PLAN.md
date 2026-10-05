@@ -145,9 +145,22 @@ unknown model) all become one safe "service unavailable" answer; a local provide
 helpful hint ("is Ollama running?"). Local models on a CPU are slow (long timeout) and less
 reliable at calling tools, but every safety check still applies to whatever they produce.
 
-**Tracing:** LangSmith, enabled by environment variables (`LANGSMITH_TRACING`,
-`LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`). Each run is tagged with the intent. Traces
-contain question and record text, so only dummy data is used.
+**Tracing (LangSmith, optional, off by default):** a dashboard of every chat message: the
+router's decision, each tool call and its arguments, the prompts sent to the AI, timings and
+errors. Design (`core/tracing.py`):
+- **Two things are required to turn it on**: `LANGSMITH_TRACING=true` and a real key (the
+  placeholder from `.env.example` does not count).
+- **We build the tracer and pass it to each run**, instead of switching LangSmith on through
+  environment variables. So the timeouts (2 s connect, 5 s read) and the retry limit (one) are
+  ours, the privacy switch is an argument, the API key never enters the process environment,
+  and nothing is cached per process. Every implicit switch (`LANGSMITH_TRACING`,
+  `LANGCHAIN_TRACING_V2`) is forced off so nothing else can trace.
+- **Never breaks or slows a request:** a dead or rejecting LangSmith is tested; the chat is not
+  held up. Honest cost: when the endpoint is dead, start-up waits a few seconds (the tracer's
+  handshake, capped by the short timeout).
+- **Privacy:** traces contain the text of questions and records. `LANGSMITH_HIDE_DATA=true`
+  sends only the structure and timings. The test suite is forced offline in `conftest.py`.
+- Each trace's root run is tagged `intent:<intent>` with metadata `routed_by: rules|ai`.
 
 ## 6. Automated workflow: impact analysis ✅
 
@@ -230,7 +243,7 @@ Impact report, Audit log. Loading, error and empty states everywhere.
 | 4 | `feature/api` | FastAPI app, errors, tests (+ docstrings PR) | ✅ |
 | 5 | `feature/langgraph-agents` | LangGraph graph, tools, grounding, `/chat`, fake-model tests, Ollama | ✅ |
 | 5b | `fix/update-agent-reliability` | Rules-first simple updates, friendly errors | ✅ |
-| 6 | `feature/tracing` | LangSmith tracing (optional, off by default) | ⬜ |
+| 6 | `feature/langsmith-tracing` | LangSmith tracing (optional, off by default) | ✅ |
 | 7 | `feature/impact-workflow` | Impact analysis, report, review flag, analysis lane, UTC timestamps | ✅ |
 | 8 | `feature/frontend` | React UI | ⬜ |
 | 9 | `feature/docker` | Dockerfiles, compose | ⬜ |

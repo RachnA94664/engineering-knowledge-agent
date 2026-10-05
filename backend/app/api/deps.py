@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.llm import build_model_provider
 from app.agents.runtime import AgentRuntime
+from app.core.tracing import build_tracer
 from app.db.session import get_session
 
 # One database session per request (opened before, closed after).
@@ -17,7 +18,9 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 @lru_cache
 def _runtime() -> AgentRuntime:
-    return AgentRuntime(build_model_provider())  # builds the graph once; the AI model is lazy
+    # Builds the graph once (the AI model itself is created lazily). The tracer is None unless
+    # LangSmith tracing is switched on in the settings.
+    return AgentRuntime(build_model_provider(), tracer=build_tracer())
 
 
 def get_runtime() -> AgentRuntime:

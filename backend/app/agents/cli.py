@@ -7,6 +7,7 @@ import sys
 
 from app.agents.llm import build_model_provider
 from app.agents.runtime import AgentRuntime
+from app.core.tracing import build_tracer, configure_tracing
 from app.db.session import SessionLocal
 
 
@@ -15,10 +16,14 @@ def main() -> None:
         print('usage: python -m app.agents.cli "your question"')
         raise SystemExit(2)
     message = " ".join(sys.argv[1:])
+    configure_tracing()
 
-    runtime = AgentRuntime(build_model_provider())
+    tracer = build_tracer()
+    runtime = AgentRuntime(build_model_provider(), tracer=tracer)
     with SessionLocal() as session:
         result = runtime.run(session, message)
+    if tracer is not None:
+        tracer.client.flush()  # send the trace before this short-lived process exits
 
     print(f"\nANSWER ({result.intent}, grounded={result.grounded}):\n  {result.answer}\n")
     if result.tool_calls:

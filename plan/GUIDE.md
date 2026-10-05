@@ -15,7 +15,7 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 | 4 | Repositories, services, audit log | ✅ |
 | 5 | REST API | ✅ |
 | 6 | LangGraph agents and `/chat` | ✅ |
-| 7 | LangSmith tracing | ⬜ |
+| 7 | LangSmith tracing | ✅ |
 | 8 | Automated impact workflow | 🔄 |
 | 9 | Frontend | ⬜ |
 | 10 | Docker | ⬜ |
@@ -190,20 +190,36 @@ Done when
 - [ ] The Update agent only creates a pending proposal
 - [ ] No key in code or git history; PR merged
 
-## Phase 7: LangSmith tracing ⬜
+## Phase 7: LangSmith tracing ✅
 
-**Why:** you cannot improve what you cannot see. Traces show every prompt, tool call,
-token count and latency.
+**Why:** you cannot improve what you cannot see. A trace shows every prompt, tool call, token
+count and timing of a chat message. It is optional and OFF by default.
 
-Mini steps: put `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT` in
-`backend/.env` and make sure they reach the process environment; tag each graph run with
-its intent; run a few questions and read the traces; make tracing **optional** (off by
-default) so it can never break a request; add a test that the app works with tracing off.
+Mini steps
+- 7.1 **Settings:** `LANGSMITH_TRACING`, `LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`,
+  `LANGSMITH_HIDE_DATA`, `LANGSMITH_ENDPOINT` in `backend/.env`. On only if the flag is true
+  AND a real key is set.
+- 7.2 **We build the tracer** (`core/tracing.py`) with short timeouts and one retry, and pass it
+  to each run. Do not rely on environment variables: LangSmith reads the process environment,
+  not our `.env` file, and caches what it reads.
+- 7.3 **Tag every trace** with its intent and how it was routed, so you can filter the dashboard.
+- 7.4 **Never break a request:** wrap everything; test a dead and a rejecting LangSmith.
+- 7.5 **Keep the tests offline:** `conftest.py` forces tracing off; the tracing tests use a fake
+  LangSmith server on your own machine and inspect exactly what would be sent.
+- 7.6 **Try it for real** (your own account; dummy data only):
+  1. Create a free key at smith.langchain.com (Settings, API Keys).
+  2. In `backend/.env` set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY=<your key>`.
+  3. Run `.\.venv\Scripts\python.exe -m app.agents.cli "Set REQ-006 priority to high"`.
+  4. Open smith.langchain.com, the project `engineering-knowledge-agent`: open the newest
+     `chat` run and click through route, update_prepare, the tool call and finalize.
+  5. Turn it off again: `LANGSMITH_TRACING=false`.
 
 Done when
-- [ ] With tracing on, a chat run appears in LangSmith with the tool calls inside it
-- [ ] With tracing off or the key missing, everything still works
-- [ ] You can find the prompt, the tool arguments and the token usage of one run
+- [ ] With tracing on, a chat run appears in the dashboard with its tool calls and intent tag
+- [ ] With tracing off, the key missing or the placeholder key, nothing is sent (tested)
+- [ ] A dead or rejecting LangSmith never breaks a chat (tested)
+- [ ] The API key is never in a request body (tested) and the tests never send anything
+- [ ] `LANGSMITH_HIDE_DATA=true` sends structure and timings but not the text (tested)
 
 ## Phase 8: Automated impact workflow 🔄
 
@@ -328,5 +344,6 @@ Loop for every change: **branch, change, test, commit, PR, merge, deploy.**
 - **A timestamp has no `+00:00`:** SQLite drops timezones; use the `UTCDateTime` column type.
 - **Confirm says "change N does not exist":** you used the *requirement* number (007) instead of the *change id* returned by the propose call.
 - **Agent invents things:** the grounding check must run and the prompt must say "tool results only".
-- **LangSmith shows nothing:** the variables must be in the process environment, not only in a file.
+- **LangSmith shows nothing:** check `LANGSMITH_TRACING=true` and a real key (not the `your-...` placeholder) in `backend/.env`, then restart the server; the start-up log says `LangSmith tracing is ON` or warns why it stays off.
+- **Server start-up takes a few seconds longer with tracing on:** the tracer does a quick handshake with LangSmith; with a dead endpoint it waits up to its short timeout.
 - **Key leaked:** revoke it immediately, then remove it from git history.

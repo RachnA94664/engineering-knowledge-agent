@@ -19,6 +19,7 @@ from app.api.routes_chat import router as chat_router
 from app.api.routes_read import router as read_router
 from app.api.schemas import HealthOut
 from app.core.config import get_settings
+from app.core.tracing import configure_tracing
 from app.db.schema import schema_problem
 from app.db.session import SessionLocal
 
@@ -40,6 +41,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_tracing(settings)  # LangSmith reads the process environment: sync it first
     app = FastAPI(
         title="Engineering Knowledge Agent API",
         version="0.1.0",

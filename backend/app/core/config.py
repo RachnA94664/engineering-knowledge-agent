@@ -25,6 +25,16 @@ class Settings(BaseSettings):
     ollama_model: str = "qwen2.5:3b"
     ollama_timeout_seconds: float = 300.0  # a local model on a CPU can be slow
     ollama_num_ctx: int = 8192  # how much text the local model can read at once
+
+    # LangSmith tracing (optional). OFF unless the flag is true AND a real key is set.
+    # Traces contain the text of questions and records, so only use dummy data, or turn on
+    # LANGSMITH_HIDE_DATA to send only the structure and timings.
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "engineering-knowledge-agent"
+    langsmith_endpoint: str = ""  # empty = the LangSmith cloud default
+    langsmith_hide_data: bool = False  # trace only structure and timings, not the text
+
     database_url: str = "sqlite:///./knowledge.db"
     allowed_origins: str = "http://localhost:5173"
 

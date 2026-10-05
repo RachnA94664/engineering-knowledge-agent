@@ -6,10 +6,16 @@ in production). Migrating once and copying the file keeps tests fast.
 """
 
 import json
+import os
 import shutil
 from pathlib import Path
 
-import pytest
+# SAFETY: the tests must NEVER send traces to a real LangSmith account, even if you turn
+# tracing on in backend/.env. A real environment variable beats the .env file, so setting it
+# here, before anything from `app` is imported, keeps every test run offline.
+os.environ["LANGSMITH_TRACING"] = "false"
+
+import pytest  # noqa: E402
 from alembic import command
 from alembic.config import Config
 from sqlalchemy.orm import Session, sessionmaker
