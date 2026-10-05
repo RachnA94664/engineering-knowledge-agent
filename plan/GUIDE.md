@@ -17,7 +17,7 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 | 6 | LangGraph agents and `/chat` | ✅ |
 | 7 | LangSmith tracing | ✅ |
 | 8 | Automated impact workflow | 🔄 |
-| 9 | Frontend | ⬜ |
+| 9 | Frontend | ✅ |
 | 10 | Docker | ⬜ |
 | 11 | CI | ⬜ |
 | 12 | Deployment | ⬜ |
@@ -255,16 +255,40 @@ Done when
 - [ ] The migration upgrades an existing populated database and can be rolled back
 - [ ] PR merged
 
-## Phase 9: Frontend ⬜
+## Phase 9: Frontend ✅
 
-Mini steps: Vite + React + TypeScript; one `api/client.ts` using `VITE_API_URL`;
-components: ChatPanel (answer, evidence table, tool trace), RequirementsTable,
-PendingChanges (diff, confirm/reject), ImpactReport, AuditLog; loading, error and empty
-states; manual test of the whole flow.
+Built with Vite + React + TypeScript (strict), plain CSS (light and dark), a hash router
+(`#/pending`) and no UI library, so there is little to learn beyond React itself.
+
+Where things live (`frontend/src`)
+- `api/client.ts`: the ONLY file that calls the backend. Reads `VITE_API_URL`; every failure
+  becomes an `ApiError` with a readable message. `api/types.ts` mirrors the backend schemas.
+- `pages/`: `ChatPage` (ask, verdict badge, evidence, tool trace, inline proposals),
+  `RequirementsPage` (filter, details, tests, latest impact, propose form),
+  `RisksPage` (filter, mark reviewed), `PendingPage` (diff, confirm/reject), `AuditPage`.
+- `components/`: `ProposalCard` (confirm/reject, then the impact report), `ImpactCard`,
+  `DiffTable`, `Evidence`, `Badge` (one colour per meaning), `Feedback`.
+- `context.tsx`: your name (kept in the browser, written to the audit log), toasts, and a
+  refresh counter that makes every list reload after a change.
+- `lib/transitions.ts` mirrors the backend status rules, only to hide impossible choices.
+  **The backend stays the authority**; if you change the rules, change both.
+- `App.tsx` polls `/health` and shows the exact fix when the database is behind the code.
+
+Design decisions to know
+- The UI never decides anything: Confirm needs a name and a click, and shows the
+  automatic impact analysis the server computed.
+- A confirmed card stays on screen (with its impact) until Refresh, so the result is not lost.
+- A 409 (somebody changed the record) tells the person to propose again.
+- Tests mock `fetch` with a tiny fake backend (`src/test/fakeApi.ts`).
+
+Run it: `cd frontend; npm install; npm run dev` (backend on port 8000).
+Check it: `npm test`, `npm run lint`, `npm run build`.
 
 Done when
-- [ ] Ask, view evidence, propose, confirm, see impact and audit: all in the browser
-- [ ] `npm run build` succeeds; the API URL is not hard-coded
+- [x] Ask, view evidence, propose, confirm, see impact and audit: all in the browser
+- [x] `npm run build` succeeds; the API URL is not hard-coded
+- [x] 25 tests, lint and build pass; verified live against the real backend and model
+- [ ] PR merged
 
 ## Phase 10: Docker ⬜
 
