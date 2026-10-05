@@ -19,7 +19,7 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 | 8 | Automated impact workflow | 🔄 |
 | 9 | Frontend | ✅ |
 | 10 | Docker | ✅ |
-| 11 | CI | ⬜ |
+| 11 | CI | ✅ |
 | 12 | Deployment | ⬜ |
 | 13 | README and polish | ⬜ |
 | 14 | Change-it-later cheat sheet | reference |
@@ -324,13 +324,37 @@ Done when
 - [x] Data survives a restart; the second start skips the seed; CORS allows only the UI origin
 - [ ] PR merged
 
-## Phase 11: CI ⬜
+## Phase 11: CI ✅
 
-Mini steps: `ruff check` and `ruff format --check`; GitHub Actions on every PR (Python
-tests with no API key, frontend build); status badge in the README.
+`.github/workflows/ci.yml` runs on every pull request and on every push to `develop`/`main`.
+Three jobs run in parallel and need NO secrets (the tests use a fake AI model):
+
+| Job | Steps |
+|---|---|
+| Backend (lint + tests) | `pip install -r requirements-dev.txt`, `ruff check .`, `ruff format --check .`, `pytest -q` |
+| Frontend (lint + tests + build) | `npm ci`, `npm run lint`, `npm test`, `npm run build` |
+| Docker images build | `docker build` for the backend and the frontend |
+
+Design decisions
+- `permissions: contents: read`: the workflow can never change the repository.
+- `concurrency` cancels an older run when you push again to the same branch.
+- Python 3.12 and Node 22 match the Docker images, so "works in CI" means "works in Docker".
+- `npm ci` (not `npm install`) installs exactly what `package-lock.json` says.
+- Run the same commands locally before pushing; if they pass, CI passes. On Windows stop
+  `npm run dev` before `npm ci` (a running Vite locks a native file and `npm ci` fails with EPERM).
+
+Make it mandatory: the `protect-develop` and `protect-main` rulesets require the three
+checks above, so a red PR cannot be merged.
+
+Reading a failure: `gh run list`, then `gh run view <id> --log-failed`. The log names the
+file, the line and the assertion.
 
 Done when
-- [ ] A PR shows green checks; a deliberately broken test turns it red, then you fix it
+- [x] A PR shows green checks (3/3)
+- [x] A deliberately broken test turned the Backend job red (1 failed, 414 passed); reverting it turned it green
+- [x] The checks are required on `develop` and `main`
+- [x] PR merged
+- [ ] Status badge in the README (added in Phase 13)
 
 ## Phase 12: Deployment ⬜
 
