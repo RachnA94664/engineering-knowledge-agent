@@ -13,13 +13,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Which AI to use: OpenAI (a paid API) or Ollama (a free model running on your own PC).
-    llm_provider: Literal["openai", "ollama"] = "openai"
+    # Which AI to use: OpenAI (a paid API), Groq (a fast hosted API with a free tier) or
+    # Ollama (a free model running on your own PC).
+    llm_provider: Literal["openai", "ollama", "groq"] = "openai"
     llm_max_output_tokens: int = 800  # cap on the length of any one AI answer
 
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     openai_timeout_seconds: float = 30.0  # give up on a slow AI call
+
+    # Groq speaks the same protocol as OpenAI, so only the address, key and model differ.
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+    groq_base_url: str = "https://api.groq.com/openai/v1"
+    groq_timeout_seconds: float = 30.0
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "qwen2.5:3b"
