@@ -100,8 +100,9 @@ class GroqModelProvider(OpenAIModelProvider):
 
     key_name = "GROQ_API_KEY"
     unavailable_message = (
-        "the Groq AI service did not answer. The key may be wrong or missing (GROQ_API_KEY), "
-        "or the free-tier rate limit was reached: wait a minute and try again."
+        "the Groq AI service did not answer. Check GROQ_API_KEY and GROQ_MODEL (the model "
+        "may not exist on your account), or the free-tier rate limit may have been reached: "
+        "wait a minute and try again."
     )
 
 

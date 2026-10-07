@@ -24,7 +24,8 @@ class Settings(BaseSettings):
 
     # Groq speaks the same protocol as OpenAI, so only the address, key and model differ.
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Model names change and differ per account: list yours with GET {groq_base_url}/models.
+    groq_model: str = "openai/gpt-oss-20b"
     groq_base_url: str = "https://api.groq.com/openai/v1"
     groq_timeout_seconds: float = 30.0
 
