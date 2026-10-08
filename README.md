@@ -17,25 +17,32 @@ database and lets you work with them in plain English.
 2. **The AI never changes data.** It can only *propose*. A human presses *Confirm*.
 3. **Everything is recorded.** Every change goes into an append-only audit log.
 
+**At a glance:** Python 3.12, FastAPI, SQLite + SQLAlchemy + Alembic, LangGraph + LangChain,
+React + TypeScript (Vite), Docker, GitHub Actions. The AI can be **Groq** (fast, free tier),
+**Ollama** (free, runs on your PC) or **OpenAI** (paid), chosen by one setting.
+
 ---
 
 ## Contents
 
 1. [What the application does](#1-what-the-application-does)
-2. [Quick start](#2-quick-start)
-3. [Architecture](#3-architecture)
-4. [Database design](#4-database-design)
-5. [Agent design](#5-agent-design)
-6. [Rules and validations](#6-rules-and-validations)
-7. [The automatic impact workflow](#7-the-automatic-impact-workflow)
-8. [Example user queries](#8-example-user-queries)
-9. [API overview](#9-api-overview)
-10. [Tests and CI](#10-tests-and-ci)
-11. [Project structure and how to change things](#11-project-structure-and-how-to-change-things)
-12. [Technical decisions and why](#12-technical-decisions-and-why)
-13. [Known limitations](#13-known-limitations)
-14. [Troubleshooting](#14-troubleshooting)
-15. [Git workflow](#15-git-workflow)
+2. [Assignment checklist: where each requirement lives](#2-assignment-checklist-where-each-requirement-lives)
+3. [Quick start](#3-quick-start)
+4. [Architecture](#4-architecture)
+5. [Database design](#5-database-design)
+6. [Agent design](#6-agent-design)
+7. [Rules and validations](#7-rules-and-validations)
+8. [The automatic impact workflow](#8-the-automatic-impact-workflow)
+9. [Example user queries](#9-example-user-queries)
+10. [API overview](#10-api-overview)
+11. [Tests and CI](#11-tests-and-ci)
+12. [Deploying](#12-deploying)
+13. [Project structure and how to change things](#13-project-structure-and-how-to-change-things)
+14. [Technical decisions and why](#14-technical-decisions-and-why)
+15. [How it was built](#15-how-it-was-built)
+16. [Known limitations](#16-known-limitations)
+17. [Troubleshooting](#17-troubleshooting)
+18. [Git workflow](#18-git-workflow)
 
 ---
 
@@ -47,7 +54,7 @@ database and lets you work with them in plain English.
 | Ask for a change | **Ask** page | The agent creates a *proposal*; nothing changes yet |
 | Review and decide on proposals | **Pending** page | You see current vs. proposed values and press *Confirm* or *Reject* |
 | See what a change affected | after *Confirm*, or **Requirements** → a requirement | The impact report: tests reset, risks flagged, warnings, impact level |
-| Browse and filter | **Requirements**, **Risks** | Tables with filters; risks flagged for review can be marked *reviewed* |
+| Browse and filter | **Requirements**, **Risks** | Summary cards and filterable tables; risks flagged for review can be marked *reviewed* |
 | Check who did what | **Audit log** | Every change: who, when, before, after, and whether a person, the agent or the system did it |
 
 The sample data is an EV-charging-station product: 15 requirements, 30 test cases, 12 risk items
@@ -55,7 +62,24 @@ and 16 requirement-to-risk links.
 
 ---
 
-## 2. Quick start
+## 2. Assignment checklist: where each requirement lives
+
+| Requirement | Done | Where to look |
+|---|---|---|
+| Database with Requirements, Test Cases, Risk Items and relationships | ✅ | `backend/app/db/models.py`, `backend/migrations/` ([section 5](#5-database-design)) |
+| Dummy data, **validated before insert** | ✅ | `backend/data/seed_raw.json`, `backend/app/db/seed.py` |
+| Multi-agent system that answers from the database | ✅ | `backend/app/agents/graph.py` ([section 6](#6-agent-design)) |
+| Rules and guardrails (unique IDs, valid references, required fields, rejected invalid operations, no invented records, logged changes) | ✅ | `backend/app/domain/`, `backend/app/services/`, `backend/app/agents/grounding.py` ([section 7](#7-rules-and-validations)) |
+| Automated impact / analysis workflow | ✅ | `backend/app/domain/impact.py`, `backend/app/services/impact.py` ([section 8](#8-the-automatic-impact-workflow)) |
+| User interface: ask, view, update, see results | ✅ | `frontend/` |
+| Git and GitHub: branches, commits, pull requests | ✅ | protected `main` and `develop`, feature branches, required CI ([section 18](#18-git-workflow)) |
+| Tests | ✅ | `backend/tests/`, `frontend/src/**/*.test.*` ([section 11](#11-tests-and-ci)) |
+| README with decisions and limitations | ✅ | this file |
+| Extras | ✅ | Docker, CI, optional LangSmith tracing, three AI providers |
+
+---
+
+## 3. Quick start
 
 You need **Git**. Then pick one way to run it.
 
@@ -69,17 +93,27 @@ cd engineering-knowledge-agent
 The app needs a language model for the **Ask** page. Everything else (browsing, proposing from the
 form, confirming, impact analysis, audit) works without one.
 
-| Option | Cost | Setup |
-|---|---|---|
-| **Ollama** (default for Docker) | free, runs on your PC, private | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5:3b` |
-| **OpenAI** | paid API credits | Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` |
+| Option | Cost | Speed | Setup |
+|---|---|---|---|
+| **Groq** | free tier (rate limited) | seconds | Create a key at [console.groq.com](https://console.groq.com), set `LLM_PROVIDER=groq` and `GROQ_API_KEY` |
+| **Ollama** (default for Docker) | free, runs on your PC, private | 30-90 s per answer on a CPU | Install [Ollama](https://ollama.com), then `ollama pull qwen2.5:3b` |
+| **OpenAI** | paid API credits | seconds | Set `LLM_PROVIDER=openai` and `OPENAI_API_KEY` |
 
-A small model on a CPU is slow: the first answer can take **30-90 seconds**, later ones are faster.
-The UI shows a timer and a Cancel button.
+In a test on the developer's laptop, Groq with `openai/gpt-oss-20b` answered a tool-calling
+question in about 5 seconds and proposed a change in about 6 seconds, against 30-90 seconds for
+the 3B model on a CPU.
+
+**Groq model names differ per account and change over time.** If chat says the AI service did not
+answer, list the models your key can use and set `GROQ_MODEL` to one that supports tools:
+
+```powershell
+Invoke-RestMethod https://api.groq.com/openai/v1/models -Headers @{ Authorization = "Bearer $env:GROQ_API_KEY" } | Select-Object -ExpandProperty data | Select-Object id
+```
 
 ### Option A: Docker (one command)
 
-Needs [Docker Desktop](https://www.docker.com/products/docker-desktop/) and (for the AI) Ollama running.
+Needs [Docker Desktop](https://www.docker.com/products/docker-desktop/) and, for the default AI,
+Ollama running.
 
 ```bash
 docker compose up --build
@@ -91,10 +125,10 @@ Stop with `docker compose down` (your data is kept in a volume; `docker compose 
 On start the backend container applies the database migrations and loads the sample data **only if
 the database is empty**, so restarting is safe.
 
-To use OpenAI instead of Ollama in Docker (PowerShell):
+To use Groq (or OpenAI) instead of Ollama in Docker (PowerShell):
 
 ```powershell
-$env:LLM_PROVIDER="openai"; $env:OPENAI_API_KEY="sk-..."; docker compose up --build
+$env:LLM_PROVIDER="groq"; $env:GROQ_API_KEY="your-key"; docker compose up --build
 ```
 
 ### Option B: run it locally (for development)
@@ -112,8 +146,8 @@ pip install -r requirements-dev.txt
 copy ..\.env.example .env             # macOS/Linux: cp ../.env.example .env
 ```
 
-Open `backend/.env` and set `LLM_PROVIDER=ollama` (or put in your OpenAI key). **`.env` is
-git-ignored: never commit it and never paste a key into chat or an issue.**
+Open `backend/.env` and set `LLM_PROVIDER` (`groq`, `ollama` or `openai`) plus that provider's key
+or settings. **`.env` is git-ignored: never commit it and never paste a key into chat or an issue.**
 
 ```powershell
 alembic upgrade head                   # create the tables
@@ -147,7 +181,8 @@ All settings are environment variables (see [`.env.example`](.env.example)); not
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `LLM_PROVIDER` | `openai` (Docker: `ollama`) | `openai` or `ollama` |
+| `LLM_PROVIDER` | `openai` (Docker: `ollama`) | `openai`, `groq` or `ollama` |
+| `GROQ_API_KEY`, `GROQ_MODEL` | - , `openai/gpt-oss-20b` | Groq settings (`GROQ_BASE_URL` defaults to Groq's OpenAI-compatible address) |
 | `OPENAI_API_KEY`, `OPENAI_MODEL` | - , `gpt-4o-mini` | OpenAI settings |
 | `OLLAMA_BASE_URL`, `OLLAMA_MODEL` | `http://localhost:11434`, `qwen2.5:3b` | Ollama settings |
 | `OLLAMA_TIMEOUT_SECONDS` | `300` | A CPU model can be slow |
@@ -158,7 +193,7 @@ All settings are environment variables (see [`.env.example`](.env.example)); not
 
 ---
 
-## 3. Architecture
+## 4. Architecture
 
 The code is split into **layers**. Each layer only talks to the one below it, so you can change
 one part without breaking the others.
@@ -204,7 +239,7 @@ flowchart LR
 
 ---
 
-## 4. Database design
+## 5. Database design
 
 SQLite, managed by **Alembic migrations** (`backend/migrations/`). The tables:
 
@@ -301,7 +336,7 @@ tests use to prove the validation works.
 
 ---
 
-## 5. Agent design
+## 6. Agent design
 
 A **multi-agent system** splits work among several agents, each with one narrow job, its own
 instructions and its own limited set of tools. This project uses a **router + specialists** design,
@@ -332,19 +367,27 @@ Those abilities do not exist for the AI, so no clever prompt can unlock them.
   recursion limit of 30, and messages of at most 1000 characters.
 - **Simple updates do not depend on the model.** "Set REQ-006 priority to high" is parsed by rules
   (`update_parser.py`), which matters because a small local model sometimes gets argument names wrong.
-- **Friendly failures.** If the AI service is down, the API returns one safe `503` message, not a
-  stack trace.
+  In a LangSmith trace such a request takes about 0.3 s and makes **no model call at all**.
+- **Friendly failures.** If the AI service is down, rate limited or misconfigured, the API returns one
+  safe `503` message (naming the setting to check), never a stack trace or a key.
 
-**Choosing the model.** `LLM_PROVIDER` selects OpenAI or Ollama (`agents/llm.py`). Both are used
-through the same LangChain chat-model interface, so the agents do not care which one runs.
+**Choosing the model.** `LLM_PROVIDER` selects Groq, Ollama or OpenAI (`agents/llm.py`). Groq and
+OpenAI share one provider class (Groq speaks the OpenAI protocol, so only the address, key name and
+model differ); Ollama has its own. The agents do not care which one runs, and the tests use a
+scripted fake model, so they need no key and no network.
+
+**Prompts.** The four system prompts are plain files in `backend/app/agents/prompts/`
+(`query.md`, `update.md`, `analysis.md`, `router.md`), loaded in one place
+(`agents/prompt_loader.py`), so they can be reviewed and changed without touching code.
 
 **Tracing (optional).** With `LANGSMITH_TRACING=true` each request is traced in
-[LangSmith](https://smith.langchain.com) (tagged with the routed intent). It is off by default, uses
-short timeouts so a dead endpoint cannot hang the app, and can send only structure and timings.
+[LangSmith](https://smith.langchain.com) (tagged with the routed intent and whether rules or the AI
+routed it). It is off by default, uses short timeouts so a dead endpoint cannot hang the app, and can
+send only structure and timings.
 
 ---
 
-## 6. Rules and validations
+## 7. Rules and validations
 
 | Rule | Where it is enforced |
 |---|---|
@@ -361,7 +404,7 @@ short timeouts so a dead endpoint cannot hang the app, and can send only structu
 | No lost updates | optimistic locking: a proposal remembers the requirement's `version`; if it changed since, confirming fails with `409` and you propose again |
 | Safe retries | confirming or rejecting twice does not repeat the effect |
 | Every modification is logged | `audit_log`, written in the **same transaction** as the change; append-only (triggers) |
-| Rate of AI use is bounded | message length, rounds and tool-call limits (see Limitations for what is *not* limited) |
+| AI use is bounded | message length, rounds and tool-call limits (see Known limitations for what is *not* limited) |
 
 **Status lifecycle**
 
@@ -375,7 +418,7 @@ No backward moves. The UI hides impossible choices, but the backend is the autho
 
 ---
 
-## 7. The automatic impact workflow
+## 8. The automatic impact workflow
 
 When a person **confirms** a change to a requirement, the system analyses the impact **inside the
 same database transaction** as the change, stores a report, and writes audit rows (actor
@@ -403,7 +446,7 @@ Real example (from the sample data): editing REQ-009's description reset TC-019,
 
 ---
 
-## 8. Example user queries
+## 9. Example user queries
 
 Type these into the **Ask** page (or `python -m app.agents.cli "..."`).
 
@@ -427,7 +470,7 @@ claim yourself.
 
 ---
 
-## 9. API overview
+## 10. API overview
 
 Interactive docs with "Try it out": **http://localhost:8000/docs**.
 
@@ -447,7 +490,7 @@ Interactive docs with "Try it out": **http://localhost:8000/docs**.
 
 ---
 
-## 10. Tests and CI
+## 11. Tests and CI
 
 ```powershell
 cd backend ; python -m pytest -q          # 400+ tests
@@ -455,15 +498,17 @@ cd frontend ; npm test                    # 25 tests
 ```
 
 - **Backend** (`backend/tests/`): `unit/` (pure rules: transitions, risk score, impact rules, router,
-  grounding), `integration/` (API, services, migrations on a *populated* database, audit log,
-  timestamps, impact workflow, tracing against a fake server) and `agents/` (the whole graph run with a
-  **scripted fake model**, so tests are free, fast and need no API key).
+  grounding, model providers), `integration/` (API, services, migrations on a *populated* database,
+  audit log, timestamps, impact workflow, tracing against a fake server) and `agents/` (the whole
+  graph run with a **scripted fake model**, so tests are free, fast and need no API key).
 - **Frontend** (`frontend/src/**/*.test.*`): Vitest + Testing Library against a tiny fake backend.
   They cover chat, confirming (and the impact report appearing), the 409 case, filters, and the
   health banner.
 - **CI** (`.github/workflows/ci.yml`): on every pull request and push to `develop`/`main`, GitHub runs
-  `ruff` + `pytest`, `eslint` + `vitest` + the production build, and builds both Docker images. These
-  checks are **required**: a red pull request cannot be merged. No secrets are involved.
+  `ruff` + `pytest`, `eslint` + `vitest` + the production build, and builds both Docker images
+  (about 40 seconds in total). These checks are **required**: a red pull request cannot be merged. No
+  secrets are involved. During development a deliberately failing test turned the backend check red
+  (`1 failed, 414 passed`), and reverting it turned it green again.
 
 Run the same checks locally before pushing:
 
@@ -474,7 +519,51 @@ cd frontend ; npm run lint ; npm test ; npm run build
 
 ---
 
-## 11. Project structure and how to change things
+## 12. Deploying
+
+**This repository is not deployed.** The code is prepared for it (a Docker image per service, a
+`/health` endpoint, settings from environment variables), but no live site is included. A deployed
+backend also cannot reach an Ollama model on your own computer, so a hosted setup should use Groq or
+OpenAI.
+
+**What was tested** (by running the backend image the way a host such as Render would):
+
+| Check | Result |
+|---|---|
+| Starts on a host-chosen `PORT` | ✅ |
+| Migrate + seed + serve until healthy | about 7.5 s |
+| Memory while idle | about 112 MiB |
+| 40 parallel requests (reads and writes) | ✅ all succeeded, no "database is locked" |
+| AI key missing | ✅ app stays up, chat returns a safe `503` |
+| CORS from an unknown origin | ✅ blocked |
+| Secrets in the image | ✅ none (keys arrive as environment variables) |
+
+**Checklist for a hosted setup**
+
+| Setting | Must be |
+|---|---|
+| Backend `LLM_PROVIDER` | `groq` (or `openai`) |
+| Backend `GROQ_API_KEY` | set in the host's environment settings, never in a file |
+| Backend `GROQ_MODEL` | a model your key can use (see [section 3](#3-quick-start)) |
+| Backend `ALLOWED_ORIGINS` | exactly the frontend address, e.g. `https://your-app.vercel.app`, no trailing slash |
+| Frontend `VITE_API_URL` | the backend address. It is fixed at **build** time, so changing it needs a rebuild |
+| Health check path | `/health` |
+
+**Known deployment traps**
+
+- **A mounted, root-owned data folder crashes the container.** The image runs as a normal user; if
+  `/data` is a mounted disk owned by root, start-up fails with `unable to open database file`
+  (reproduced in a test). Make the mount writable by user id 10001.
+- **Free hosts without a persistent disk reset the SQLite database** on every deploy or restart. The
+  sample data comes back (the seed only runs on an empty database) but proposals and the audit log
+  are lost.
+- **Free hosts sleep when idle**, so the first request after a pause is slow.
+- **There is no login and no rate limit** (see [section 16](#16-known-limitations)). Do not expose
+  the write endpoints publicly with a paid key, and expect a free key's quota to be easy to use up.
+
+---
+
+## 13. Project structure and how to change things
 
 ```
 engineering-knowledge-agent/
@@ -484,7 +573,7 @@ engineering-knowledge-agent/
 │   │   ├── db/            models, session, seed, schema check
 │   │   ├── repositories/  all SQL
 │   │   ├── services/      use cases: propose, confirm, impact, reviews
-│   │   ├── agents/        LangGraph graph, tools, router, grounding, prompts/
+│   │   ├── agents/        LangGraph graph, tools, router, grounding, llm.py, prompts/
 │   │   ├── api/           routes, schemas, error handling
 │   │   ├── core/          settings, optional tracing
 │   │   └── main.py        app start-up and /health
@@ -496,7 +585,7 @@ engineering-knowledge-agent/
 │   ├── src/api/           the only code that calls the backend
 │   ├── src/pages/         Ask, Requirements, Risks, Pending, Audit
 │   ├── src/components/    badges, diff table, impact card, proposal card
-│   ├── Dockerfile, nginx.conf
+│   └── Dockerfile, nginx.conf
 ├── docker-compose.yml
 ├── .github/workflows/ci.yml
 └── plan/                  PLAN.md (design) and GUIDE.md (phase-by-phase build log)
@@ -512,7 +601,8 @@ engineering-knowledge-agent/
 | What a change affects | `domain/impact.py` | update `tests/unit/test_impact_rules.py` |
 | Add or change a database column | `db/models.py` | `alembic revision --autogenerate -m "message"`, review the file, `alembic upgrade head` (test on a database that already has data) |
 | What the AI may do | `agents/tools.py` (the `*_TOOLS` tuples) | add tests; never give an agent a delete or confirm tool |
-| How the AI behaves | `agents/prompts/*.md` | run the agent tests |
+| How the AI behaves | `agents/prompts/*.md` | restart the backend (prompts are read once at start-up); run the agent tests |
+| Add another AI provider | `agents/llm.py` (a provider class + `build_model_provider`) and `core/config.py` | add tests like `tests/unit/test_model_provider.py` |
 | Words that are refused or routed | `agents/router.py` | update `tests/unit/test_router.py` |
 | Look and feel | `frontend/src/styles.css` (colour tokens at the top) | |
 | Seed data | `backend/data/seed_raw.json` | `python -m app.db.seed` on an empty database |
@@ -522,7 +612,7 @@ After changing the database models always create a migration; after pulling new 
 
 ---
 
-## 12. Technical decisions and why
+## 14. Technical decisions and why
 
 | Decision | Why | Trade-off |
 |---|---|---|
@@ -537,26 +627,71 @@ After changing the database models always create a migration; after pulling new 
 | **Append-only audit log via triggers** | Even a bug cannot rewrite history | Corrections are new rows |
 | **SQLite + Alembic** | Zero setup, one file, and real migrations (tested on populated data) | Single writer; see limitations |
 | **FastAPI + Pydantic** | Typed validation and automatic `/docs` | |
-| **Ollama by default, OpenAI optional** | Free and private for development; the code is provider-neutral | A 3B CPU model is slow and less capable |
+| **Three AI providers behind one setting** | Develop free and private (Ollama), demo fast (Groq), or use a paid model (OpenAI) without touching the agents. Groq reuses the OpenAI client with a different address | A provider's model names and limits must be checked per account |
 | **React + plain CSS, no UI library, hash router** | Little to learn, tiny bundle, nothing to configure on a static host | Hand-written styles |
 | **One error format** | The frontend shows a readable message for any failure | |
 | **Docker + required CI checks** | Same environment everywhere; no red code reaches `develop` or `main` | |
 
 ---
 
-## 13. Known limitations
+## 15. How it was built
+
+The project was built phase by phase (the full log, with what was verified at each step, is in
+[`plan/GUIDE.md`](plan/GUIDE.md)):
+
+| Step | What was built | How it was verified |
+|---|---|---|
+| Setup and repository | Tools, accounts, GitHub repository, protected `main` and `develop`, pull-request workflow | Direct pushes to `main`/`develop` are rejected |
+| Database | Tables, migrations, validated seed data (15/30/12/16 rows) | Migration tests on a populated database, rollback tested, invalid seed rows rejected |
+| Domain rules | Status lifecycle, risk score, field rules, IDs | Unit tests for every rule |
+| Repositories, services, audit log | Layered data access, transactions, append-only audit | Integration tests; triggers reject edits to the log |
+| REST API | Endpoints, one error format, interactive docs | API tests and a manual walk through `/docs` |
+| Agents and `/chat` | LangGraph router + 3 specialists, tools, grounding, limits | Fake-model tests plus live runs against a real local model |
+| LangSmith tracing | Optional tracing with our own tracer and short timeouts | Tested against a fake LangSmith server; real traces inspected |
+| Impact workflow | Rule-based impact report on confirm, risk review flag | Workflow tests; live example on REQ-009 |
+| Frontend | React UI: Ask, Requirements, Risks, Pending, Audit; later redesigned (sidebar, summary cards, polished chat) | 25 Vitest tests; checked in a real browser against the real backend |
+| Docker | Backend and frontend images, `docker compose up --build` | Fresh start, data persists across restarts, chat answered from inside the container |
+| CI | GitHub Actions with required checks | Green run, deliberate red run, then green again |
+| Groq provider | `LLM_PROVIDER=groq` | Provider tests; live questions answered in about 5-6 s |
+| Deployment review | Run the image like a host would; fixed the Groq model default | Results in [section 12](#12-deploying) |
+
+**Problems found along the way (and fixed)** - useful as a list of what to watch for:
+
+- A SQLite default written with `sa.text("0")` made Alembic rebuild a table and fail on foreign keys
+  in a *populated* database. Fixed, with migration tests that run on populated data.
+- Parallel tool calls shared one database session and crashed ("Session is already flushing"). Fixed
+  with a lock.
+- Malformed tool calls were being counted as grounding evidence. Now only results produced by our own
+  code count.
+- Timestamps came back inconsistent after a read (timezone lost). Fixed with a UTC column type.
+- New code against an old database caused bare 500 errors. `/health` and a start-up warning now name
+  the fix (`alembic upgrade head`).
+- A 3B local model passed wrong argument names to the update tool. Simple updates are now parsed by
+  rules first.
+- LangSmith's automatic tracing could hang the process on exit when its endpoint was unreachable. We
+  now build our own tracer with short timeouts.
+- The first Groq model name chosen as the default did not exist on the test account; a live test
+  caught it. The default was changed and the model is a setting.
+- A root-owned mounted data folder makes the container exit (see [section 12](#12-deploying)).
+
+---
+
+## 16. Known limitations
 
 - **Speed and quality depend on the model.** A 3B model on a CPU takes tens of seconds and can
-  misread complicated requests. Simple updates are parsed by rules for this reason. A hosted model
-  (OpenAI) is much faster.
+  misread complicated requests. Simple updates are parsed by rules for this reason. Groq or OpenAI
+  are much faster.
+- **Groq's free tier is rate limited.** A burst of questions can be refused; the app then shows the
+  safe "AI service did not answer" message.
 - **No authentication.** The "Your name" box is self-declared; anyone who can open the app can
   confirm changes. Do not expose it publicly as-is.
 - **No rate limiting on the API yet.** Only message length and agent loop limits exist. Add a rate
-  limit before putting it on the internet with a paid AI key.
-- **Not deployed.** The code is ready for Render (backend) and Vercel (frontend) but this repository does not
-  include a live deployment. A deployed backend could not reach an Ollama model on your own PC.
+  limit and protect the write endpoints before putting it on the internet.
+- **Not deployed** (see [section 12](#12-deploying)). Hosted setups also need a decision on
+  persistence, because free hosts reset SQLite.
 - **SQLite is single-writer.** Fine for a demo and a few users, not for heavy concurrent writes
-  (switch `DATABASE_URL` to PostgreSQL and test the migrations first).
+  (switch `DATABASE_URL` to PostgreSQL and test the migrations first). The tests ran 40 parallel
+  requests without problems, but many long-running chats at once were not tested.
 - **Limited editing.** Through the UI and the AI you can change only a requirement's title,
   description, priority and status. Creating or deleting records is not exposed on purpose.
 - **Simple impact analysis.** It follows direct links (requirement to its tests and risks). It does
@@ -564,37 +699,47 @@ After changing the database models always create a migration; after pulling new 
 - **The list endpoints are not paginated** (fine for tens of records, not thousands).
 - **The status rules exist twice** (backend and `frontend/src/lib/transitions.ts`); the backend is the
   authority, and the frontend copy only hides impossible choices.
+- **Prompts are read once at start-up**, so editing a prompt file needs a restart.
 - **Tracing sends text to LangSmith** when enabled. Use dummy data or `LANGSMITH_HIDE_DATA=true`.
 - **The router is keyword-based.** Any message that *looks* like a question (starts with "what",
   "show", ...) goes to the query agent, even an off-topic one. That is safe (with no database
   lookup the user gets the fixed "I can only answer from the database" reply) but it costs one
   model call. English only.
 
+**Ideas for next steps:** a rate limit and a password on the write endpoints, a persistent database
+for hosting, loading the prompts from LangSmith Prompt Hub (the four prompts already exist there as
+private prompts, but the app does not read them), and a clearer message for each AI failure cause.
+
 ---
 
-## 14. Troubleshooting
+## 17. Troubleshooting
 
 | Symptom | Cause and fix |
 |---|---|
 | The page says *"Cannot reach the backend"* | The backend is not running, or `VITE_API_URL` is wrong. Start it and check http://localhost:8000/health |
 | A red banner mentions `alembic upgrade head` | Your database is older than the code. Run `cd backend ; alembic upgrade head` |
 | *"The local AI (Ollama...) is not reachable"* | Ollama is not running or the model is missing: `ollama pull qwen2.5:3b`. Check `Invoke-RestMethod http://localhost:11434/api/tags` |
-| The first answer takes a minute | Normal on a CPU while the model loads. Later answers are faster |
+| *"The Groq AI service did not answer"* | Check `GROQ_API_KEY`; the model in `GROQ_MODEL` may not exist on your account (list your models, see [section 3](#3-quick-start)); or the free-tier rate limit was reached, so wait a minute |
+| The first Ollama answer takes a minute | Normal on a CPU while the model loads. Later answers are faster |
 | `Address already in use` on port 8000 | Another backend is running (a local one *or* Docker). Stop one: `docker compose down` |
 | `EPERM` during `npm ci` on Windows | `npm run dev` is still running and locks a file. Stop it first |
 | PowerShell: *"`&&` is not a valid statement separator"* | Windows PowerShell 5 does not support `&&`; run the commands on separate lines or separate them with `;` |
+| `git diff` shows a `:` and nothing happens | You are in the pager. Press `q`, or use `git --no-pager diff` |
 | `GET /requirements/5` returns 404 | IDs look like `REQ-005` |
 | Confirm says the requirement changed (409) | Someone changed it after the proposal. Propose it again |
 
 ---
 
-## 15. Git workflow
+## 18. Git workflow
 
 - `main` holds finished, released work; `develop` is the integration branch. **Both are protected:**
   changes arrive only through pull requests, and the CI checks must pass.
 - Work happens on short-lived branches (`feature/database`, `feature/agents`, `feature/frontend`,
-  `feature/docker`, `feature/ci`, `docs/readme`, ...) and merges into `develop` by pull request.
+  `feature/docker`, `feature/ci`, `feature/groq`, `docs/readme`, ...) and merges into `develop` by pull
+  request.
 - Commit messages follow a simple convention: `feat(scope): ...`, `fix(scope): ...`, `docs: ...`,
   `chore: ...`, `test: ...`.
+- Development used an AI coding assistant (Claude Code) as a pair programmer; those commits carry a
+  `Co-Authored-By` line. Every change still went through a pull request and the required checks.
 - The design lives in [`plan/PLAN.md`](plan/PLAN.md); the phase-by-phase build log, with what was
   verified at each step and the lessons learned, is in [`plan/GUIDE.md`](plan/GUIDE.md).
