@@ -11,6 +11,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """Every setting the application reads, with its default.
+
+    Values come from environment variables (``LLM_PROVIDER``, ``GROQ_API_KEY`` ...) and from
+    ``backend/.env``; a real environment variable wins over the file.
+    """
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Which AI to use: OpenAI (a paid API), Groq (a fast hosted API with a free tier) or
@@ -55,10 +61,19 @@ class Settings(BaseSettings):
 
     @property
     def origins_list(self) -> list[str]:
+        """Split ``ALLOWED_ORIGINS`` into a clean list.
+
+        Returns:
+            The allowed frontend origins, without blanks.
+        """
         return [o.strip() for o in self.allowed_origins.split(",") if o.strip()]
 
 
 @lru_cache
 def get_settings() -> Settings:
-    """Create the settings once and reuse them."""
+    """Create the settings once and reuse them.
+
+    Returns:
+        The shared ``Settings`` object. Tests call ``get_settings.cache_clear()`` to rebuild it.
+    """
     return Settings()

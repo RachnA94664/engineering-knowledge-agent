@@ -41,6 +41,11 @@ def analyze(
         priority_after: The requirement's priority AFTER the change.
         tests: Its linked test cases: {"id", "title", "status"}.
         risks: Its linked risks: {"id", "title", "score", "level", "status", "needs_review"}.
+
+    Returns:
+        The report as a dictionary: ``requirement_id``, ``level`` (low, medium or high),
+        ``changed_fields``, ``tests_to_reset``, ``tests_failing``, ``risks_to_flag``,
+        ``warnings`` and a one-paragraph ``summary``.
     """
     open_risks = [r for r in risks if r["status"] != "closed"]
     tests_to_reset: list[dict] = []

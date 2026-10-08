@@ -167,7 +167,15 @@ def pull_prompt_text(settings: Settings, name: str) -> str:
 
 
 def _redact(message: str, settings: Settings) -> str:
-    """Make an error message safe to log: no API key, and not too long."""
+    """Make an error message safe to log: no API key, and not too long.
+
+    Args:
+        message: The error text.
+        settings: The application settings (for the key to hide).
+
+    Returns:
+        The text with the key replaced by ``<hidden>``, cut to 200 characters.
+    """
     key = settings.langsmith_api_key.strip()
     if key:
         message = message.replace(key, "<hidden>")

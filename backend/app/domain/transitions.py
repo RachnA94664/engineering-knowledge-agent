@@ -17,11 +17,30 @@ ALLOWED_TRANSITIONS: dict[str, set[str]] = {
 
 
 def can_transition(current: str, new: str) -> bool:
+    """Tell whether a requirement may move from one status to another.
+
+    Args:
+        current: The status it has now.
+        new: The status it would move to.
+
+    Returns:
+        True if the lifecycle allows the move. An unknown ``current`` status allows nothing.
+    """
     return new in ALLOWED_TRANSITIONS.get(current, set())
 
 
 def ensure_transition(current: str, new: str) -> None:
-    """Raise if moving from `current` to `new` is not allowed."""
+    """Check a status change, and explain what is wrong if it is not allowed.
+
+    Args:
+        current: The status the requirement has now.
+        new: The status it would move to.
+
+    Raises:
+        ValidationError: If either status is not one of the known statuses.
+        InvalidTransition: If the lifecycle does not allow the move. The error details list
+            the statuses that are allowed from ``current``.
+    """
     for name, value in (("current", current), ("new", new)):
         if value not in REQUIREMENT_STATUSES:
             raise ValidationError(

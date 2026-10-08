@@ -10,8 +10,7 @@ MAX_TITLE_LENGTH = 200
 
 
 def validate_patch(current: dict, patch: object) -> dict:
-    """
-    Check a proposed change against the requirement's current values.
+    """Check a proposed change against the requirement's current values.
 
     Args:
         current: The current requirement.

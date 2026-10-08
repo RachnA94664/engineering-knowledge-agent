@@ -65,6 +65,15 @@ class OpenAIModelProvider:
         self._model: ChatOpenAI | None = None
 
     def __call__(self) -> BaseChatModel:
+        """Return the chat model, creating it on first use.
+
+        Returns:
+            A ``ChatOpenAI`` with our timeout, retry, output-length and temperature limits.
+
+        Raises:
+            ServiceUnavailable: If no API key is configured (the message names the setting,
+                never a key).
+        """
         if not self._api_key:
             raise ServiceUnavailable(f"the AI service is not configured ({self.key_name} is empty)")
         if self._model is None:
@@ -83,7 +92,12 @@ class OpenAIModelProvider:
         return self._model
 
     def drop_temperature(self) -> bool:
-        """Some models reject `temperature`. Stop sending it. True if a retry makes sense."""
+        """Stop sending ``temperature``, because some models reject it.
+
+        Returns:
+            True if the setting was dropped now (so one retry makes sense), False if it had
+            already been dropped (so there is nothing more to try).
+        """
         if not self._use_temperature:
             return False
         self._use_temperature = False
@@ -126,12 +140,23 @@ class OllamaModelProvider:
 
     @property
     def unavailable_message(self) -> str:
+        """The safe message shown when Ollama cannot be used.
+
+        Returns:
+            A sentence that names the model and asks whether Ollama is running.
+        """
         return (
             f"the local AI (Ollama, model '{self._model_name}') is not reachable. "
             "Is Ollama running and the model downloaded?"
         )
 
     def __call__(self) -> BaseChatModel:
+        """Return the chat model, creating it on first use.
+
+        Returns:
+            A ``ChatOllama`` with our output-length, context and timeout limits. Creating it
+            does not contact the server.
+        """
         if self._model is None:
             self._model = ChatOllama(
                 model=self._model_name,
@@ -145,7 +170,11 @@ class OllamaModelProvider:
 
 
 def build_model_provider() -> OpenAIModelProvider | OllamaModelProvider:
-    """Choose the AI from the LLM_PROVIDER setting."""
+    """Choose the AI from the ``LLM_PROVIDER`` setting.
+
+    Returns:
+        A Groq, Ollama or OpenAI provider. Call it to get the chat model.
+    """
     s = get_settings()
     if s.llm_provider == "groq":
         return GroqModelProvider(

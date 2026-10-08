@@ -1,6 +1,8 @@
-"""Turn errors into HTTP responses with ONE consistent JSON shape:
+"""Turn errors into HTTP responses with ONE consistent JSON shape.
 
-{"error": {"code": "...", "message": "...", "details": {...}}}
+Every error response looks like this::
+
+    {"error": {"code": "...", "message": "...", "details": {...}}}
 """
 
 import logging
@@ -33,16 +35,45 @@ STATUS_BY_ERROR: dict[type[DomainError], int] = {
 
 
 def error_response(status: int, code: str, message: str, details: dict | None = None):
+    """Build an error response in the standard shape.
+
+    Args:
+        status: The HTTP status code.
+        code: A stable machine-readable name, for example ``not_found``.
+        message: A sentence a person can read.
+        details: Optional extra facts (for example the allowed status moves).
+
+    Returns:
+        The JSON response.
+    """
     body = {"error": {"code": code, "message": message, "details": details or {}}}
     return JSONResponse(status_code=status, content=jsonable_encoder(body))
 
 
 async def domain_error_handler(_: Request, exc: DomainError):
+    """Answer a business-rule error with its HTTP status (404, 409, 422 or 503).
+
+    Args:
+        _: The request (unused).
+        exc: The domain error that was raised.
+
+    Returns:
+        The standard JSON error response.
+    """
     status = next((s for cls, s in STATUS_BY_ERROR.items() if isinstance(exc, cls)), 400)
     return error_response(status, exc.code, exc.message, exc.details)
 
 
 async def request_validation_handler(_: Request, exc: RequestValidationError):
+    """Answer a malformed request (wrong shape or types) with HTTP 422.
+
+    Args:
+        _: The request (unused).
+        exc: FastAPI's validation error, which lists every problem found.
+
+    Returns:
+        The standard JSON error response, with the problems under ``details.errors``.
+    """
     return error_response(
         422,
         "validation_error",
@@ -52,17 +83,40 @@ async def request_validation_handler(_: Request, exc: RequestValidationError):
 
 
 async def http_error_handler(_: Request, exc: StarletteHTTPException):
-    # Unknown URL (404), wrong method (405), ...
+    """Answer a plain HTTP error (unknown URL, wrong method) in the standard shape.
+
+    Args:
+        _: The request (unused).
+        exc: The HTTP error, for example a 404 for an unknown URL or a 405 for a wrong method.
+
+    Returns:
+        The standard JSON error response with the code ``http_error``.
+    """
     return error_response(exc.status_code, "http_error", str(exc.detail))
 
 
 async def unhandled_error_handler(_: Request, exc: Exception):
-    # Log the real cause for us; tell the client nothing that could leak internals.
+    """Answer any unexpected error with HTTP 500 and nothing that could leak internals.
+
+    The real cause is written to the server log.
+
+    Args:
+        _: The request (unused).
+        exc: The unexpected error.
+
+    Returns:
+        The standard JSON error response with the code ``internal_error``.
+    """
     logger.exception("unhandled error")
     return error_response(500, "internal_error", "something went wrong on the server")
 
 
 def register_error_handlers(app: FastAPI) -> None:
+    """Install the four error handlers on the application.
+
+    Args:
+        app: The FastAPI application.
+    """
     app.add_exception_handler(DomainError, domain_error_handler)
     app.add_exception_handler(RequestValidationError, request_validation_handler)
     app.add_exception_handler(StarletteHTTPException, http_error_handler)

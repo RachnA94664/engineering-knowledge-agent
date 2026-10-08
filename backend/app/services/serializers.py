@@ -7,10 +7,26 @@ from app.domain.risk import risk_level, risk_score
 
 
 def _iso(value) -> str | None:
+    """Format a timestamp as ISO 8601 text, keeping None as None.
+
+    Args:
+        value: A timestamp or None.
+
+    Returns:
+        The ISO 8601 text, or None.
+    """
     return value.isoformat() if value is not None else None
 
 
 def requirement_to_dict(req: models.Requirement) -> dict:
+    """Describe a requirement as a plain dictionary.
+
+    Args:
+        req: The requirement row.
+
+    Returns:
+        Its fields, with timestamps as ISO 8601 text.
+    """
     return {
         "id": req.id,
         "title": req.title,
@@ -24,6 +40,14 @@ def requirement_to_dict(req: models.Requirement) -> dict:
 
 
 def testcase_to_dict(tc: models.TestCase) -> dict:
+    """Describe a test case as a plain dictionary.
+
+    Args:
+        tc: The test case row.
+
+    Returns:
+        Its fields.
+    """
     return {
         "id": tc.id,
         "requirement_id": tc.requirement_id,
@@ -35,6 +59,15 @@ def testcase_to_dict(tc: models.TestCase) -> dict:
 
 
 def risk_to_dict(risk: models.RiskItem) -> dict:
+    """Describe a risk item as a plain dictionary.
+
+    Args:
+        risk: The risk row.
+
+    Returns:
+        Its fields plus the derived ``score`` (severity x likelihood) and ``level``. Those two
+        are calculated here and never stored.
+    """
     score = risk_score(risk.severity, risk.likelihood)
     return {
         "id": risk.id,
@@ -50,6 +83,14 @@ def risk_to_dict(risk: models.RiskItem) -> dict:
 
 
 def change_to_dict(change: models.PendingChange) -> dict:
+    """Describe a pending change as a plain dictionary.
+
+    Args:
+        change: The pending-change row.
+
+    Returns:
+        Its fields, with the stored JSON patch decoded into a dictionary.
+    """
     return {
         "id": change.id,
         "entity_type": change.entity_type,
@@ -64,6 +105,14 @@ def change_to_dict(change: models.PendingChange) -> dict:
 
 
 def audit_to_dict(entry: models.AuditLog) -> dict:
+    """Describe an audit-log entry as a plain dictionary.
+
+    Args:
+        entry: The audit-log row.
+
+    Returns:
+        Its fields, with the stored JSON values decoded.
+    """
     return {
         "id": entry.id,
         "ts": _iso(entry.ts),
@@ -79,7 +128,14 @@ def audit_to_dict(entry: models.AuditLog) -> dict:
 
 
 def impact_to_dict(row: models.ImpactReport) -> dict:
-    """The stored report, with its row id, change id and time added."""
+    """Describe a stored impact report as a plain dictionary.
+
+    Args:
+        row: The impact-report row.
+
+    Returns:
+        The stored report with its row id, change id and creation time added.
+    """
     return {
         "id": row.id,
         "change_id": row.change_id,

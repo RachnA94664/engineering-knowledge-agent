@@ -53,6 +53,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 
 def create_app() -> FastAPI:
+    """Build the FastAPI application: logging, tracing, CORS, error handlers and routes.
+
+    Returns:
+        The configured application (also available as the module-level ``app``).
+    """
     settings = get_settings()
     configure_app_logging()
     configure_tracing(settings)  # LangSmith reads the process environment: sync it first
@@ -80,7 +85,17 @@ def create_app() -> FastAPI:
 
     @app.get("/health", response_model=HealthOut, tags=["system"])
     def health(session: SessionDep, response: Response):
-        """Is the API up, can it reach the database, and is the database up to date?"""
+        """Is the API up, can it reach the database, and is the database up to date?
+
+        \f
+        Args:
+            session: The database session.
+            response: Used to set the HTTP status (503 when something is wrong).
+
+        Returns:
+            ``status`` and a ``database`` description. When the schema is behind the code, the
+            text says exactly which command fixes it.
+        """
         try:
             session.execute(text("SELECT 1"))
         except Exception:

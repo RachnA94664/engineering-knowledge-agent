@@ -29,12 +29,27 @@ ENTITY = "requirement"
 
 
 def _now() -> datetime:
-    """Get the current time in UTC."""
+    """Get the current time in UTC.
+
+    Returns:
+        The current time, with its timezone attached.
+    """
     return datetime.now(UTC)
 
 
 def _get_change(session: Session, change_id: int):
-    """Get a change by its ID."""
+    """Get a change by its ID.
+
+    Args:
+        session: The database session.
+        change_id: The ID of the change.
+
+    Returns:
+        The change row.
+
+    Raises:
+        NotFound: If there is no such change.
+    """
     change = pending_repo.get(session, change_id)
     if change is None:
         raise NotFound(f"change {change_id} does not exist")
@@ -44,15 +59,23 @@ def _get_change(session: Session, change_id: int):
 def propose_requirement_change(
     session: Session, requirement_id: str, patch: object, *, proposed_by: str, source: str = "ui"
 ) -> dict:
-    """
-    Validate a change and save it as pending. Changes NOTHING about the requirement.
+    """Validate a change and save it as pending. Changes NOTHING about the requirement.
 
     Args:
         session: The database session.
-        requirement_id: The ID of the requirement to change.
-        patch: The proposed change.
-        proposed_by: The actor making the change.
-        source: The source of the change.
+        requirement_id: The ID of the requirement to change, for example ``REQ-006``.
+        patch: The proposed change: the fields to change and their new values.
+        proposed_by: Who is proposing it (a person's name or the agent's name).
+        source: Where it came from: ``ui``, ``agent`` or ``system``.
+
+    Returns:
+        A dictionary with ``change`` (the saved pending change) and ``preview`` (for each
+        field, its current value and the proposed one).
+
+    Raises:
+        NotFound: If the requirement does not exist.
+        ValidationError: If the ID, the actor or the patch is invalid (raised by the checks
+            this function calls).
     """
     ensure_valid_id("requirement", requirement_id)
     _check_who(proposed_by, source)
@@ -86,8 +109,7 @@ def propose_requirement_change(
 
 
 def _expire(session: Session, change, actor: str, source: str, reason: str) -> None:
-    """
-    Expire a change.
+    """Expire a change.
 
     Args:
         session: The database session.
@@ -111,7 +133,26 @@ def _expire(session: Session, change, actor: str, source: str, reason: str) -> N
 
 
 def confirm_change(session: Session, change_id: int, *, actor: str, source: str = "ui") -> dict:
-    """Apply a pending change. Safe to call twice: the second call changes nothing."""
+    """Apply a pending change. Safe to call twice: the second call changes nothing.
+
+    Everything happens in ONE transaction: the version check, the update, the version bump,
+    the audit row and the automatic impact analysis. If any part fails, nothing is saved.
+
+    Args:
+        session: The database session.
+        change_id: The ID of the pending change.
+        actor: The person confirming it.
+        source: Where it came from: ``ui``, ``agent`` or ``system``.
+
+    Returns:
+        A dictionary with ``change``, ``already_applied`` and ``impact`` (the impact report),
+        plus ``requirement`` (the updated requirement) when the change was applied now.
+
+    Raises:
+        NotFound: If the change or its requirement does not exist.
+        Conflict: If the change is not pending, or the requirement changed after the change
+            was proposed (the proposal is then marked ``expired`` and must be made again).
+    """
     _check_who(actor, source)
     change = _get_change(session, change_id)
 
@@ -180,14 +221,20 @@ def confirm_change(session: Session, change_id: int, *, actor: str, source: str 
 
 
 def reject_change(session: Session, change_id: int, *, actor: str, source: str = "ui") -> dict:
-    """
-    Close a pending change without applying it.
+    """Close a pending change without applying it. Safe to call twice.
 
     Args:
         session: The database session.
         change_id: The ID of the change to reject.
-        actor: The actor making the change.
-        source: The source of the change.
+        actor: The person rejecting it.
+        source: Where it came from: ``ui``, ``agent`` or ``system``.
+
+    Returns:
+        A dictionary with ``change`` and ``already_rejected``.
+
+    Raises:
+        NotFound: If the change does not exist.
+        Conflict: If the change was already applied or has expired.
     """
     _check_who(actor, source)
     change = _get_change(session, change_id)
@@ -213,10 +260,12 @@ def reject_change(session: Session, change_id: int, *, actor: str, source: str =
 
 
 def list_pending_changes(session: Session) -> list[dict]:
-    """
-    List all pending changes.
+    """List all pending changes.
 
     Args:
         session: The database session.
+
+    Returns:
+        The pending changes, oldest first.
     """
     return [change_to_dict(c) for c in pending_repo.list_by_status(session, "pending")]

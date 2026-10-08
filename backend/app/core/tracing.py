@@ -35,16 +35,29 @@ _TRACING_SWITCHES = ("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRA
 
 
 def tracing_requested(settings: Settings) -> bool:
-    """True only if tracing is switched on AND a real (non-placeholder) key is present."""
+    """Tell whether tracing should run.
+
+    Args:
+        settings: The application settings.
+
+    Returns:
+        True only if tracing is switched on AND a real (non-placeholder) key is present.
+    """
     key = settings.langsmith_api_key.strip()
     return settings.langsmith_tracing and bool(key) and not key.startswith(PLACEHOLDER_PREFIX)
 
 
 def configure_tracing(settings: Settings | None = None) -> bool:
-    """Force every IMPLICIT tracing switch off. Returns True if our own tracer will be used.
+    """Force every IMPLICIT tracing switch off.
 
-    Traces are only ever produced by the tracer from `build_tracer`, never by environment
+    Traces are only ever produced by the tracer from ``build_tracer``, never by environment
     variables, so what is sent is always exactly what the settings allow.
+
+    Args:
+        settings: The application settings. Defaults to the shared settings.
+
+    Returns:
+        True if our own tracer will be used.
     """
     settings = settings or get_settings()
     for name in _TRACING_SWITCHES:
@@ -58,7 +71,14 @@ def configure_tracing(settings: Settings | None = None) -> bool:
 
 
 def build_tracer(settings: Settings | None = None):
-    """Create the LangSmith tracer, or None when tracing is off. Never raises."""
+    """Create the LangSmith tracer. Never raises.
+
+    Args:
+        settings: The application settings. Defaults to the shared settings.
+
+    Returns:
+        The tracer, or None when tracing is off or could not be set up.
+    """
     settings = settings or get_settings()
     if not tracing_requested(settings):
         return None

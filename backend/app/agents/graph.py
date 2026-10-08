@@ -59,6 +59,14 @@ class AgentState(MessagesState):
 
 
 def _last_human_text(state: AgentState) -> str:
+    """Find what the user last wrote.
+
+    Args:
+        state: The graph state.
+
+    Returns:
+        The text of the newest human message, or an empty string if there is none.
+    """
     for message in reversed(state["messages"]):
         if isinstance(message, HumanMessage):
             return message_text(message.content)
@@ -66,7 +74,14 @@ def _last_human_text(state: AgentState) -> str:
 
 
 def _limit_hit(state: AgentState) -> bool:
-    """True if the model kept asking for tools after we ran out of rounds."""
+    """Tell whether the model kept asking for tools after we ran out of rounds.
+
+    Args:
+        state: The graph state.
+
+    Returns:
+        True if the last message still asks for tools and more than ``MAX_ROUNDS`` rounds ran.
+    """
     last: BaseMessage = state["messages"][-1]
     return bool(getattr(last, "tool_calls", None)) and state.get("rounds", 0) > MAX_ROUNDS
 
@@ -75,6 +90,19 @@ def _limit_hit(state: AgentState) -> bool:
 
 
 def make_route_node(get_model: ModelFactory) -> Callable:
+    """Build the node that decides what a message is asking for.
+
+    The node tries the keyword rules first (free and predictable) and asks the AI only for a
+    message the rules cannot place. It also tags the LangSmith trace with the intent.
+
+    Args:
+        get_model: Returns the chat model (real or scripted). Only called if the rules cannot
+            decide, so a refused request needs no AI at all.
+
+    Returns:
+        The graph node. It sets ``intent``, ``reason`` and resets ``rounds``.
+    """
+
     def route_node(state: AgentState, config) -> dict:
         text = _last_human_text(state)
         decision = route_by_rules(text)  # free and predictable; no AI involved
@@ -92,7 +120,14 @@ def make_route_node(get_model: ModelFactory) -> Callable:
 
 
 def refuse_node(state: AgentState) -> dict:
-    """Refusals are written by code. The AI is never asked to explain a refusal."""
+    """Write the reply to a refused or off-topic message. The AI is never asked to explain.
+
+    Args:
+        state: The graph state (``intent`` is ``refused`` or ``out_of_scope``).
+
+    Returns:
+        The state update: a fixed ``answer`` written by code, marked ``grounded``.
+    """
     if state["intent"] == "refused":
         return {"answer": f"I can't do that: {state['reason']}.", "grounded": True}
     return {"answer": answers.OUT_OF_SCOPE_ANSWER, "grounded": True}
@@ -101,7 +136,17 @@ def refuse_node(state: AgentState) -> dict:
 def make_agent_node(
     get_model: ModelFactory, system_prompt: str, tools: Sequence[StructuredTool]
 ) -> Callable:
-    """The chat model, bound to ONLY this agent's tools."""
+    """Build an agent node: the chat model, bound to ONLY this agent's tools.
+
+    Args:
+        get_model: Returns the chat model (real or scripted).
+        system_prompt: The agent's system prompt (from LangSmith or the local file).
+        tools: The only tools this agent may call. An agent cannot use any other tool.
+
+    Returns:
+        The graph node. It asks the model what to do next, counts a round whenever the model
+        asks for tools, and keeps at most ``MAX_CALLS_PER_STEP`` of those calls.
+    """
 
     def agent_node(state: AgentState, config) -> dict:
         model = get_model().bind_tools(list(tools))
@@ -123,6 +168,13 @@ def update_prepare_node(state: AgentState) -> dict:
 
     The AI is then not needed: the proposal goes through the same tool and the same checks.
     Anything unusual falls through to the AI agent.
+
+    Args:
+        state: The graph state.
+
+    Returns:
+        ``{"direct": False}`` when the AI must handle the message; otherwise a ready-made
+        tool call for ``propose_requirement_change`` with ``direct`` set to True.
     """
     arguments = parse_simple_update(_last_human_text(state))
     if arguments is None:
@@ -141,6 +193,13 @@ def analysis_prepare_node(state: AgentState) -> dict:
 
     The report was written by rules when the change was confirmed, so no AI is needed to look
     it up or to describe it. Unusual questions (several requirements, no id) go to the AI.
+
+    Args:
+        state: The graph state.
+
+    Returns:
+        ``{"direct": False}`` when the AI must handle the message; otherwise a ready-made
+        tool call for ``get_impact`` with ``direct`` set to True.
     """
     ids = sorted({m.upper() for m in REQ_ID_FOUND.findall(_last_human_text(state))})
     if len(ids) != 1:
@@ -160,16 +219,38 @@ def analysis_prepare_node(state: AgentState) -> dict:
 
 
 def after_prepare(state: AgentState) -> str:
+    """Choose the next step after a rules-based preparation.
+
+    Args:
+        state: The graph state.
+
+    Returns:
+        ``"tools"`` if rules already made the tool call, otherwise ``"agent"``.
+    """
     return "tools" if state.get("direct") else "agent"
 
 
 def after_direct_tools(state: AgentState) -> str:
-    """After a rules-made tool call there is nothing for the AI to add: finish."""
+    """After a rules-made tool call there is nothing for the AI to add: finish.
+
+    Args:
+        state: The graph state.
+
+    Returns:
+        ``"finalize"`` for a rules-made call, otherwise ``"agent"``.
+    """
     return "finalize" if state.get("direct") else "agent"
 
 
 def after_agent(state: AgentState) -> str:
-    """Run tools if the model asked for them (and we still have rounds left), else finish."""
+    """Run tools if the model asked for them (and we still have rounds left), else finish.
+
+    Args:
+        state: The graph state.
+
+    Returns:
+        ``"tools"`` or ``"finalize"``.
+    """
     last = state["messages"][-1]
     if getattr(last, "tool_calls", None) and not _limit_hit(state):
         return "tools"
@@ -177,7 +258,16 @@ def after_agent(state: AgentState) -> str:
 
 
 def finalize_query(state: AgentState) -> dict:
-    """The grounding check. The answer is shown only if the database backs it."""
+    """Apply the grounding check: the answer is shown only if the database backs it.
+
+    Args:
+        state: The graph state, with the model's final message and the tool results.
+
+    Returns:
+        The state update: the ``answer`` to show and whether it is ``grounded``. An answer
+        with no tool lookup behind it, or one that names an ID no tool returned, is replaced
+        by a fixed message written by code.
+    """
     if _limit_hit(state):
         return {"answer": answers.TOO_MANY_STEPS_ANSWER, "grounded": False}
 
@@ -193,6 +283,14 @@ def finalize_query(state: AgentState) -> dict:
 
 
 def _describe(event: ToolEvent) -> str:
+    """Describe a saved proposal in one sentence.
+
+    Args:
+        event: The successful ``propose_requirement_change`` tool result.
+
+    Returns:
+        For example ``Proposed change #4 for REQ-006 (priority: 'medium' -> 'high').``
+    """
     change = event.result["change"]
     steps = "; ".join(
         f"{f}: {v['old']!r} -> {v['new']!r}" for f, v in event.result["preview"].items()
@@ -204,6 +302,13 @@ def finalize_update(state: AgentState) -> dict:
     """When a proposal was saved, the reply is written HERE, from the tool result.
 
     That way the answer can never claim "done" when nothing was applied.
+
+    Args:
+        state: The graph state, with the tool results.
+
+    Returns:
+        The state update: the ``answer`` and whether it is ``grounded``. A successful proposal
+        always ends with "Nothing has been changed yet".
     """
     proposals = [e for e in tool_events(state["messages"]) if e.name == PROPOSE_CHANGE.name]
     if proposals:
@@ -236,6 +341,12 @@ def finalize_analysis(state: AgentState) -> dict:
     When rules made the lookup, the answer is written HERE from the report itself, so it can
     never contain an invented test, risk or level. When the AI made the lookup (an unusual
     question), its text goes through the same grounding check as every other answer.
+
+    Args:
+        state: The graph state, with the tool results.
+
+    Returns:
+        The state update: the ``answer`` and whether it is ``grounded``.
     """
     if not state.get("direct"):
         return finalize_query(state)
@@ -255,6 +366,14 @@ def finalize_analysis(state: AgentState) -> dict:
 
 
 def pick_lane(state: AgentState) -> str:
+    """Choose which specialist handles the message, from the routed intent.
+
+    Args:
+        state: The graph state (``intent`` has been set by the route node).
+
+    Returns:
+        ``"refuse"``, ``"analysis"``, ``"update"`` or ``"query"``.
+    """
     intent = state["intent"]
     if intent in ("refused", "out_of_scope"):
         return "refuse"
@@ -264,7 +383,16 @@ def pick_lane(state: AgentState) -> str:
 
 
 def build_graph(get_model: ModelFactory):
-    """Create the compiled graph. `get_model` returns the chat model (real or scripted)."""
+    """Create the compiled agent graph (see the diagram at the top of this file).
+
+    The system prompts are loaded here, once per process, through ``load_prompt``.
+
+    Args:
+        get_model: Returns the chat model (real or scripted for tests).
+
+    Returns:
+        The compiled LangGraph graph, ready to be invoked once per chat message.
+    """
     graph = StateGraph(AgentState)
 
     graph.add_node("route", make_route_node(get_model))
