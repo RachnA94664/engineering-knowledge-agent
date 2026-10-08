@@ -75,7 +75,21 @@ and 16 requirement-to-risk links.
 | Git and GitHub: branches, commits, pull requests | ✅ | protected `main` and `develop`, feature branches, required CI ([section 18](#18-git-workflow)) |
 | Tests | ✅ | `backend/tests/`, `frontend/src/**/*.test.*` ([section 11](#11-tests-and-ci)) |
 | README with decisions and limitations | ✅ | this file |
-| Extras | ✅ | Docker, CI, optional LangSmith tracing, three AI providers |
+| Extras | ✅ | Docker, CI, three AI providers, LangSmith tracing and prompt management, an enforced docstring standard |
+
+**Where the README answers each of the eight required topics:**
+what the application does → [section 1](#1-what-the-application-does) ·
+architecture → [4](#4-architecture) ·
+database design → [5](#5-database-design) ·
+agent design → [6](#6-agent-design) ·
+rules and validations → [7](#7-rules-and-validations) ·
+how to run → [3](#3-quick-start) ·
+example queries → [9](#9-example-user-queries) ·
+known limitations → [16](#16-known-limitations).
+The important technical decisions, and the reasons behind them, are in
+[14](#14-technical-decisions-and-why) (including three decisions that **changed during the
+project**: moving to Groq, the docstring format, and LangSmith) and in
+[15](#15-how-it-was-built).
 
 ---
 
@@ -188,7 +202,8 @@ All settings are environment variables (see [`.env.example`](.env.example)); not
 | `OLLAMA_TIMEOUT_SECONDS` | `300` | A CPU model can be slow |
 | `DATABASE_URL` | `sqlite:///./knowledge.db` | Where the data lives |
 | `ALLOWED_ORIGINS` | `http://localhost:5173` | Which web addresses may call the API (CORS) |
-| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | Optional tracing. Traces contain your text: use dummy data, or set `LANGSMITH_HIDE_DATA=true` |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | Optional tracing. Traces contain your text: use dummy data, or set `LANGSMITH_HIDE_DATA=true`. The key is also what lets the app pull its prompts (next row) |
+| `PROMPT_SOURCE`, `PROMPT_TAG` | `langsmith`, empty | Where the agents' system prompts come from: **LangSmith Prompt Hub** (needs a real `LANGSMITH_API_KEY`; if it cannot be reached the app uses the files in `backend/app/agents/prompts/`) or `local`. A tag such as `production` pins a version; empty means the latest |
 | `VITE_API_URL` (frontend) | `http://localhost:8000` | Address of the API, fixed when the frontend is built |
 
 ---
@@ -376,9 +391,18 @@ OpenAI share one provider class (Groq speaks the OpenAI protocol, so only the ad
 model differ); Ollama has its own. The agents do not care which one runs, and the tests use a
 scripted fake model, so they need no key and no network.
 
-**Prompts.** The four system prompts are plain files in `backend/app/agents/prompts/`
-(`query.md`, `update.md`, `analysis.md`, `router.md`), loaded in one place
-(`agents/prompt_loader.py`), so they can be reviewed and changed without touching code.
+**Prompts.** The agents' system prompts live in **LangSmith Prompt Hub** as four private prompts
+(`eka-query`, `eka-update`, `eka-analysis`, `eka-router`), so they can be edited and versioned
+without touching code. `agents/prompt_loader.py` pulls them (`PROMPT_SOURCE=langsmith`, the
+default). The same four prompts are kept as plain files in `backend/app/agents/prompts/` as the
+reviewed baseline and the **fallback**: with no key, no network, a missing prompt or a prompt of the
+wrong shape (template variables, non-system messages, empty, too long) the app logs a warning and
+uses the file, so LangSmith can never take the app down. After one connection failure it stops
+asking, so an outage costs one 5-second timeout instead of four. Prompts load once per process, so
+**restart the backend after editing one**; `python -m app.agents.prompt_loader` prints where each
+prompt came from. The safety rules (tool allow-lists, grounding check, refusals, limits) are code,
+not prompt text, so an edited prompt can change how the AI words things but cannot give it new
+powers. The reasoning is in [section 14.2](#142-decisions-that-changed-along-the-way).
 
 **Tracing (optional).** With `LANGSMITH_TRACING=true` each request is traced in
 [LangSmith](https://smith.langchain.com) (tagged with the routed intent and whether rules or the AI
@@ -493,7 +517,7 @@ Interactive docs with "Try it out": **http://localhost:8000/docs**.
 ## 11. Tests and CI
 
 ```powershell
-cd backend ; python -m pytest -q          # 400+ tests
+cd backend ; python -m pytest -q          # 440+ tests
 cd frontend ; npm test                    # 25 tests
 ```
 
@@ -505,7 +529,8 @@ cd frontend ; npm test                    # 25 tests
   They cover chat, confirming (and the impact report appearing), the 409 case, filters, and the
   health banner.
 - **CI** (`.github/workflows/ci.yml`): on every pull request and push to `develop`/`main`, GitHub runs
-  `ruff` + `pytest`, `eslint` + `vitest` + the production build, and builds both Docker images
+  `ruff` (style **and docstring** rules) + `pytest`, `eslint` + `vitest` + the production build, and
+  builds both Docker images
   (about 40 seconds in total). These checks are **required**: a red pull request cannot be merged. No
   secrets are involved. During development a deliberately failing test turned the backend check red
   (`1 failed, 414 passed`), and reverting it turned it green again.
@@ -601,7 +626,7 @@ engineering-knowledge-agent/
 | What a change affects | `domain/impact.py` | update `tests/unit/test_impact_rules.py` |
 | Add or change a database column | `db/models.py` | `alembic revision --autogenerate -m "message"`, review the file, `alembic upgrade head` (test on a database that already has data) |
 | What the AI may do | `agents/tools.py` (the `*_TOOLS` tuples) | add tests; never give an agent a delete or confirm tool |
-| How the AI behaves | `agents/prompts/*.md` | restart the backend (prompts are read once at start-up); run the agent tests |
+| How the AI behaves | The prompt in LangSmith Prompt Hub (`eka-query`, `eka-update`, `eka-analysis`, `eka-router`) **and** the matching file `agents/prompts/*.md` | restart the backend (prompts load once at start-up) and run the agent tests. The file is the reviewed baseline and the fallback, so keep the two in step |
 | Add another AI provider | `agents/llm.py` (a provider class + `build_model_provider`) and `core/config.py` | add tests like `tests/unit/test_model_provider.py` |
 | Words that are refused or routed | `agents/router.py` | update `tests/unit/test_router.py` |
 | Look and feel | `frontend/src/styles.css` (colour tokens at the top) | |
@@ -610,9 +635,52 @@ engineering-knowledge-agent/
 After changing the database models always create a migration; after pulling new code run
 `alembic upgrade head` (the app's `/health` and start-up log tell you if you forgot).
 
+### Docstrings: how the code is documented
+
+Every public module, class, function and method in `backend/app` has a docstring in the **Google
+style**: a one-line summary, then sections that say what the function takes, gives back and can
+reject. This is a real example from `domain/risk.py`:
+
+```python
+def risk_score(severity: int, likelihood: int) -> int:
+    """Calculate the risk score.
+
+    Args:
+        severity: The severity of the risk.
+        likelihood: The likelihood of the risk.
+
+    Returns:
+        The risk score.
+
+    Raises:
+        ValidationError: If the severity or likelihood is not a whole number from 1 to 5.
+    """
+```
+
+The conventions:
+
+- The summary is on the **first line** and ends with a full stop.
+- `Args:` describes every parameter (not `self` or `cls`). `Returns:` says what comes back and
+  `Yields:` is used for generators. `Raises:` lists every error the function raises, which matters
+  most in the rules layer, where "what can be rejected, and why" is the whole point.
+- **Route functions:** FastAPI shows a route's docstring on the `/docs` page, so the first paragraph
+  is written for API users and a form feed (`\f`) hides the developer-only `Args:` / `Returns:` part.
+- **Pydantic models:** their docstrings appear in the API schema. For the AI's tool arguments
+  (`agents/tools.py`) the AI reads them too, so they are written for the AI first.
+- **Enforced, not just agreed.** `ruff check .` runs the `D` (docstring) rules with the Google
+  convention, plus `DOC201`, `DOC402` and `DOC501`, which fail a docstring that forgets `Returns`,
+  `Yields` or `Raises`. It runs locally and in CI, so a pull request with a missing or malformed
+  docstring cannot be merged. Tests, migrations, empty package `__init__.py` files and magic methods
+  are exempt. The `DOC` rules are ruff *preview* rules, so ruff's version is pinned in
+  `requirements-dev.txt`.
+
+The reasoning is in [section 14.2](#142-decisions-that-changed-along-the-way).
+
 ---
 
 ## 14. Technical decisions and why
+
+### 14.1 The main decisions
 
 | Decision | Why | Trade-off |
 |---|---|---|
@@ -631,6 +699,137 @@ After changing the database models always create a migration; after pulling new 
 | **React + plain CSS, no UI library, hash router** | Little to learn, tiny bundle, nothing to configure on a static host | Hand-written styles |
 | **One error format** | The frontend shows a readable message for any failure | |
 | **Docker + required CI checks** | Same environment everywhere; no red code reaches `develop` or `main` | |
+| **Google-style docstrings, enforced by ruff** | Code explains itself, including what it can reject, and the standard cannot drift | A little more to write per function |
+| **System prompts in LangSmith Prompt Hub, files as fallback** | Prompts are versioned and editable without a code change; the app still works if LangSmith does not | Two copies can drift; edits bypass pull requests |
+
+### 14.2 Decisions that changed along the way
+
+Some decisions were not made once at the start; they changed when a real problem appeared. These
+three show the reasoning best. Each says what happened, why, what it costs, and where it stands now.
+
+#### A. From OpenAI to Ollama to Groq (the AI provider)
+
+**What happened**
+
+1. The plan was OpenAI, a hosted paid model. The first real request failed because the account had
+   no credits left.
+2. We switched to **Ollama** running `qwen2.5:3b` on the developer's PC: free, private, no key,
+   works offline.
+3. Its limits showed up quickly. An answer took **30 to 90 seconds** on a CPU; the small model
+   sometimes called tools with wrong argument names (for example `new_priority`); and a hosted
+   server cannot reach a model running on a laptop, which blocks any real deployment.
+4. We switched to **Groq**: fast hosted open models with a free tier that needs no credit card.
+
+**Why Groq**
+
+- **Speed:** about 5 seconds for a question or a proposal against 30 to 90 seconds before (measured
+  with `openai/gpt-oss-20b`).
+- **It can be hosted:** a server anywhere can call it, unlike a model on one laptop.
+- **Almost no code:** Groq speaks the OpenAI protocol, so only the address, the key name and the
+  model differ. One provider class serves both; the change was a new class with a few lines, six
+  tests and a setting. The agents, tools and guardrails were not touched.
+- **Free:** the project must be runnable without paying.
+
+**Why it was cheap to do.** From the start the AI is created in one place (`agents/llm.py`) and
+passed around as a factory, and the tests use a scripted fake model. Changing provider was a
+setting (`LLM_PROVIDER`), not a rewrite. That early decision paid off twice, for OpenAI to Ollama
+and again for Ollama to Groq.
+
+**What it costs**
+
+- Free-tier rate limits: a burst of questions can be refused, and the app then shows a safe message.
+- The text of questions and records leaves the machine, so use dummy data.
+- Model names differ per account and change over time. A live test found that the first default
+  (`llama-3.3-70b-versatile`) did not exist on the test account ("model not found"). The default is
+  now `openai/gpt-oss-20b`, `GROQ_MODEL` is a setting, and [section 3](#3-quick-start) shows how to
+  list the models your key can use. Lesson: fake models cannot find this kind of problem, so run one
+  real request.
+
+**Status:** all three providers still work; choose with `LLM_PROVIDER`.
+
+#### B. Docstrings in a proper, enforced format
+
+**What happened.** Docstrings were added through a documentation branch, but the result was uneven:
+some functions had full `Args / Returns / Raises` sections, many had one line, some started on the
+second line, and 52 public functions had none. The standard was then made consistent across
+`backend/app` and enforced by the linter (see [Docstrings](#docstrings-how-the-code-is-documented)).
+
+**Why Google style**
+
+- It is where a reader looks first. A docstring says what a function does, what it needs, what it
+  returns and **what it can reject**. In a project whose heart is rules and validation, the
+  `Raises:` section is documentation of the rules themselves.
+- It is readable as plain text in the source and is understood by tools: editors show it on hover,
+  `help()` prints it, and documentation generators can build pages from it.
+- The maintainer is a beginner. Self-explaining code lowers the cost of changing it later, which was
+  one of the project's goals.
+- Google style over the reST or NumPy styles: less punctuation, easier to read.
+
+**Why enforce it.** A convention that is only agreed on drifts. Making the linter fail a missing or
+malformed docstring keeps the standard true after the person who wrote it has moved on.
+
+**How we know it did no harm.** The change touched 42 files, so we compared each file's syntax tree
+before and after, ignoring docstrings: all 42 were identical. The code did not change; only the
+documentation did.
+
+**What it costs and what is not covered**
+
+- A little more writing per function, and docstrings can still go stale, so review and tests
+  matter.
+- Tests and migrations are exempt, and the `DOC` rules are ruff preview rules (so ruff is pinned).
+- A lesson from earlier: a bulk docstring edit by an editor's AI helper once broke the indentation
+  inside a docstring in `agents/tools.py`. Ruff and the tests caught it and the file was restored.
+  After any bulk edit, run `ruff` and the tests.
+
+#### C. LangSmith: tracing and system prompts
+
+**Tracing (optional).** An AI system is not deterministic, so to answer "why did it say that?" you
+need to see each step: which route was chosen, which tools were called with which arguments, what
+came back and how long each step took. Example: the trace of *"Set REQ-006 priority to high"* showed
+route, one tool call and the answer in about 0.3 s with **no model call at all**, which is direct
+evidence that the rules-first design works. We build our own tracer (off by default, short
+timeouts, an option to send only structure and timings) because LangSmith's automatic
+environment-variable tracing once made the process hang on exit when its endpoint was unreachable.
+
+**System prompts in Prompt Hub.** The four system prompts live in LangSmith as private prompts
+(`eka-query`, `eka-update`, `eka-analysis`, `eka-router`). Each has a single System message and no
+template variables, and was checked to be word-for-word identical to the file it came from. The app
+pulls them at start-up and falls back to the files if it cannot.
+
+*Why put prompts in LangSmith instead of code*
+
+1. **Versioning.** Every save is a commit with a hash, and a tag such as `production` can point at
+   the version that should be live.
+2. **Fast experiments.** A prompt can be tried in the Playground against different models without
+   editing code or redeploying.
+3. **Lower barrier.** Someone who does not write Python can propose a wording change.
+4. **Traceability.** The prompt sits in the same place as the traces that show how it behaved.
+   (The version used is not yet recorded in each trace.)
+
+*Why the files stay, and why this is safe*
+
+1. **LangSmith must never be able to take the app down.** If it cannot be reached, the key is
+   missing, a prompt is missing, or a prompt has the wrong shape, the app logs a warning and uses
+   the file. We checked each case against the real service: a missing tag, a wrong key and an
+   unreachable endpoint all fall back with exit code 0. After one connection failure the app stops
+   asking, which cut an outage's start-up delay from 17.6 s to 5.5 s.
+2. **The tests need no network and no key.** They use `PROMPT_SOURCE=local`.
+3. **The safety rules are code, not prompt text.** The tool allow-lists, the grounding check, the
+   refusals and the limits do not depend on a prompt. A badly edited prompt can make answers worse,
+   but it cannot give the AI a new power. That is the reason moving prompts out of the repository is
+   acceptable at all.
+
+**What it costs**
+
+- A prompt edited in a web page does not go through a pull request or CI. Using a tag
+  (`PROMPT_TAG=production`) and moving it deliberately gives a review step; with the default (the
+  latest commit) **any save goes live at the next restart**. The tag has not been created yet.
+- Two copies (LangSmith and the files) can drift, so the files are the reviewed baseline and both
+  should be updated together.
+- Prompts load once per process, so a change needs a restart.
+
+**Status:** the app loads its prompts from LangSmith by default and was verified live against the
+real service (all four prompts loaded; reads, a proposal and a refusal behaved as before).
 
 ---
 
@@ -654,6 +853,8 @@ The project was built phase by phase (the full log, with what was verified at ea
 | CI | GitHub Actions with required checks | Green run, deliberate red run, then green again |
 | Groq provider | `LLM_PROVIDER=groq` | Provider tests; live questions answered in about 5-6 s |
 | Deployment review | Run the image like a host would; fixed the Groq model default | Results in [section 12](#12-deploying) |
+| Prompts in LangSmith | The agents load their system prompts from Prompt Hub, with the files as fallback | Checked against the real service (all four load); a missing tag, a wrong key and a dead endpoint all fall back; 21 offline tests |
+| Docstring standard | Google-style docstrings on all public code, enforced by ruff in CI | 0 violations; all 42 touched files identical once docstrings are ignored; 441 tests pass |
 
 **Problems found along the way (and fixed)** - useful as a list of what to watch for:
 
@@ -672,6 +873,11 @@ The project was built phase by phase (the full log, with what was verified at ea
   now build our own tracer with short timeouts.
 - The first Groq model name chosen as the default did not exist on the test account; a live test
   caught it. The default was changed and the model is a setting.
+- The first version of the prompt loader waited out a separate timeout for each of the four prompts
+  when LangSmith was unreachable (17.6 s). It now stops asking after the first connection failure
+  (5.5 s).
+- A bulk docstring edit by an editor's AI helper broke indentation inside a docstring. Ruff and the
+  tests caught it; the lesson is to run both after any bulk edit.
 - A root-owned mounted data folder makes the container exit (see [section 12](#12-deploying)).
 
 ---
@@ -699,7 +905,15 @@ The project was built phase by phase (the full log, with what was verified at ea
 - **The list endpoints are not paginated** (fine for tens of records, not thousands).
 - **The status rules exist twice** (backend and `frontend/src/lib/transitions.ts`); the backend is the
   authority, and the frontend copy only hides impossible choices.
-- **Prompts are read once at start-up**, so editing a prompt file needs a restart.
+- **Prompts load once per process**, so editing one (in LangSmith or as a file) needs a restart.
+- **A prompt edited in LangSmith skips code review.** It does not go through a pull request or CI.
+  The safety rules are code, so a bad prompt cannot grant new powers, but it can make answers
+  worse. With the default (`PROMPT_TAG` empty) any save goes live at the next restart; create a
+  `production` tag in LangSmith and set `PROMPT_TAG=production` to control when a version goes live.
+- **Two copies of each prompt** (LangSmith and `backend/app/agents/prompts/`) can drift. The files are
+  the reviewed baseline and the fallback.
+- **Docstring checks cover `backend/app` only.** Tests and migrations are exempt, and the `DOC` rules
+  are ruff preview rules (so the ruff version is pinned).
 - **Tracing sends text to LangSmith** when enabled. Use dummy data or `LANGSMITH_HIDE_DATA=true`.
 - **The router is keyword-based.** Any message that *looks* like a question (starts with "what",
   "show", ...) goes to the query agent, even an off-topic one. That is safe (with no database
@@ -707,8 +921,8 @@ The project was built phase by phase (the full log, with what was verified at ea
   model call. English only.
 
 **Ideas for next steps:** a rate limit and a password on the write endpoints, a persistent database
-for hosting, loading the prompts from LangSmith Prompt Hub (the four prompts already exist there as
-private prompts, but the app does not read them), and a clearer message for each AI failure cause.
+for hosting, a `production` tag on the LangSmith prompts (and recording the prompt version in each
+trace), and a clearer message for each AI failure cause.
 
 ---
 
@@ -720,6 +934,9 @@ private prompts, but the app does not read them), and a clearer message for each
 | A red banner mentions `alembic upgrade head` | Your database is older than the code. Run `cd backend ; alembic upgrade head` |
 | *"The local AI (Ollama...) is not reachable"* | Ollama is not running or the model is missing: `ollama pull qwen2.5:3b`. Check `Invoke-RestMethod http://localhost:11434/api/tags` |
 | *"The Groq AI service did not answer"* | Check `GROQ_API_KEY`; the model in `GROQ_MODEL` may not exist on your account (list your models, see [section 3](#3-quick-start)); or the free-tier rate limit was reached, so wait a minute |
+| The log says *"could not load prompt ... from LangSmith ... using the local file"* | Prompt Hub could not be used (wrong or missing `LANGSMITH_API_KEY`, no network, a `PROMPT_TAG` that does not exist, or a prompt with the wrong shape). The app keeps working with the files. Run `python -m app.agents.prompt_loader` to see where each prompt comes from |
+| I edited a prompt in LangSmith but nothing changed | Prompts load once per process: restart the backend. Also check `PROMPT_TAG`: if it is set, the tag must point at your new version |
+| `ruff check` fails with `D...` or `DOC...` codes | A docstring is missing or malformed; see [Docstrings](#docstrings-how-the-code-is-documented). `ruff check . --fix` repairs layout-only issues |
 | The first Ollama answer takes a minute | Normal on a CPU while the model loads. Later answers are faster |
 | `Address already in use` on port 8000 | Another backend is running (a local one *or* Docker). Stop one: `docker compose down` |
 | `EPERM` during `npm ci` on Windows | `npm run dev` is still running and locks a file. Stop it first |
@@ -735,8 +952,8 @@ private prompts, but the app does not read them), and a clearer message for each
 - `main` holds finished, released work; `develop` is the integration branch. **Both are protected:**
   changes arrive only through pull requests, and the CI checks must pass.
 - Work happens on short-lived branches (`feature/database`, `feature/agents`, `feature/frontend`,
-  `feature/docker`, `feature/ci`, `feature/groq`, `docs/readme`, ...) and merges into `develop` by pull
-  request.
+  `feature/docker`, `feature/ci`, `feature/groq`, `feature/prompt-hub`, `docs/docstring-standard`,
+  `docs/readme`, ...) and merges into `develop` by pull request.
 - Commit messages follow a simple convention: `feat(scope): ...`, `fix(scope): ...`, `docs: ...`,
   `chore: ...`, `test: ...`.
 - Development used an AI coding assistant (Claude Code) as a pair programmer; those commits carry a
