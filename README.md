@@ -960,3 +960,102 @@ trace), and a clearer message for each AI failure cause.
   `Co-Authored-By` line. Every change still went through a pull request and the required checks.
 - The design lives in [`plan/PLAN.md`](plan/PLAN.md); the phase-by-phase build log, with what was
   verified at each step and the lessons learned, is in [`plan/GUIDE.md`](plan/GUIDE.md).
+
+### 18.1 Git and GitHub commands practiced in this project
+
+These are the commands used throughout the project, in the order they are used. The first nine
+(the daily loop) cover most of a software engineer's day; the rest are occasional.
+Commands are for Windows PowerShell.
+
+**The daily loop: one feature, start to finish**
+
+```powershell
+git status                       # 1. What changed? Run it constantly; it changes nothing.
+git checkout develop             # 2. Start from the integration branch...
+git pull origin develop          #    ...and download the team's latest code.
+git checkout -b feature/my-task  # 3. A new branch for each task. Never work on main or develop.
+git add file1 file2              # 4. Choose exactly what goes into the next commit.
+git commit -m "feat: what and why"   # 5. Save a snapshot with a clear message.
+git push -u origin feature/my-task   # 6. Upload the branch (-u only the first time; later: git push).
+gh pr create --base develop --title "feat: ..." --body "..."   # 7. Open a pull request.
+gh pr checks                     # 8. Did the required CI checks pass?
+gh pr merge --merge              # 9. Merge when the checks are green and it has been reviewed.
+```
+
+After the merge, `git checkout develop` and `git pull origin develop` bring your own copy up to date.
+
+**Look and understand (read-only, always safe)**
+
+```powershell
+git status --short               # changed files, one short line each (" M" modified, "??" new)
+git diff                         # exactly what changed, not yet staged
+git diff --cached                # exactly what is staged, about to be committed
+git --no-pager diff --stat       # which files changed and by how many lines (no pager prompt)
+git log --oneline -10            # recent history, one line per commit
+git branch --show-current        # which branch am I on?
+git show develop:path/to/file    # a file as it is on another branch, without switching
+git ls-files                     # every file git tracks
+git check-ignore -v backend/.env # proves a file is ignored, and which rule ignores it
+git fetch origin                 # look at what changed on GitHub without changing my files
+```
+
+**Park work and undo (safely)**
+
+```powershell
+git stash push -m "wip" -- README.md   # park changes to one file so I can switch branches
+git stash list                         # what is parked
+git stash pop                          # bring it back
+git revert --no-edit HEAD              # undo the last commit by adding a NEW commit that reverses it
+git rm --cached path/to/file           # stop tracking a file but keep it on disk
+```
+
+`git revert` does not erase history, so the record stays honest. This project never used
+`git reset --hard` or `git push --force`, because both can destroy work.
+
+**GitHub CLI (`gh`): pull requests and CI**
+
+```powershell
+gh pr list --state open          # which pull requests are open
+gh pr view 17                    # one pull request in detail
+gh pr checks 17                  # the CI results of a pull request
+gh run list --limit 4            # recent CI runs and their result
+gh run watch                     # follow a run live
+gh run view <run-id> --log-failed    # the log of only the failed step
+gh auth login --web              # log in to GitHub through the browser (one time)
+```
+
+**One-time setup**
+
+```powershell
+git clone https://github.com/RachnA94664/engineering-knowledge-agent.git
+git config --global core.pager cat   # stop git opening the ":" viewer for long output
+```
+
+**When two people changed the same lines (a merge conflict)**
+
+```powershell
+git pull origin develop    # git reports: CONFLICT in file X
+# open file X, find the <<<<<<<  =======  >>>>>>> markers, keep the right lines, delete the markers
+git add file-X
+git commit                 # finishes the merge
+```
+
+**Habits that matter more than the commands**
+
+| Habit | Why |
+|---|---|
+| `git status` before `git add`, and again before `git commit` | You catch a wrong file or a secret before it is saved |
+| `git add <named files>`, not `git add .` | Keeps `.env`, logs and unrelated edits out of commits |
+| Check the branch first (`git branch --show-current`) | Editing on the wrong branch happened once in this project |
+| Pull before you branch | You start from the latest code and avoid conflicts |
+| One small change per branch and per pull request | Easy to review and easy to undo |
+| Commit messages as `type: what and why` | `feat:` new feature, `fix:` bug, `docs:`, `test:`, `chore:` |
+| Never put an API key in a command or a file that is tracked | A key in git history is leaked for good |
+| In PowerShell 5, write long commit messages to a file and use `git commit -F file.txt` | Quotes inside `-m "..."` break and git then treats the words as file names |
+
+**Why merging is done with `gh pr merge` and not `git merge`.** `main` and `develop` are protected:
+nothing reaches them except through a pull request whose required checks pass. So merging is a
+pull-request action, and `git pull` is only used to bring GitHub's changes down to your copy.
+
+**A way to remember it:** *status, pull, branch, add, commit, push, pull request.*
+See what changed, get the latest, branch off, choose, save, upload, ask for review.
