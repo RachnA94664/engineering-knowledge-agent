@@ -26,6 +26,19 @@ from app.db.session import SessionLocal
 logger = logging.getLogger("app")
 
 
+def configure_app_logging() -> None:
+    """Show the application's own INFO messages next to uvicorn's.
+
+    Without this, only warnings would appear, so you could not see which prompt source or
+    tracing mode is in use. Safe to call more than once.
+    """
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(levelname)s:     [%(name)s] %(message)s"))
+        logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     """On start-up, say clearly if the database is behind the code (it still starts)."""
@@ -41,6 +54,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_app_logging()
     configure_tracing(settings)  # LangSmith reads the process environment: sync it first
     app = FastAPI(
         title="Engineering Knowledge Agent API",

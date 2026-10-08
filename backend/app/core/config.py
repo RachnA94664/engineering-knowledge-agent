@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     langsmith_endpoint: str = ""  # empty = the LangSmith cloud default
     langsmith_hide_data: bool = False  # trace only structure and timings, not the text
 
+    # Where the agents' SYSTEM PROMPTS come from. "langsmith" pulls them from LangSmith Prompt
+    # Hub (needs a real LANGSMITH_API_KEY) and falls back to the files in agents/prompts/ if
+    # that fails, so LangSmith can never take the app down. "local" always uses the files.
+    prompt_source: Literal["langsmith", "local"] = "langsmith"
+    prompt_name_prefix: str = "eka-"  # the prompt "query" is stored as "eka-query"
+    prompt_tag: str = ""  # empty = the latest commit; "production" pins that tag
+
     database_url: str = "sqlite:///./knowledge.db"
     allowed_origins: str = "http://localhost:5173"
 
