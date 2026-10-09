@@ -48,13 +48,28 @@ DATA_WORDS = re.compile(
 
 @dataclass(frozen=True)
 class Route:
+    """The router's decision about one message.
+
+    Attributes:
+        intent: ``query``, ``update``, ``analysis``, ``out_of_scope`` or ``refused``.
+        reason: A short human-readable reason (shown for refusals).
+        used_llm: True if the AI had to decide, False if the keyword rules did.
+    """
+
     intent: str  # query | update | analysis | out_of_scope | refused
     reason: str
     used_llm: bool = False
 
 
 def route_by_rules(message: str) -> Route | None:
-    """Return a Route if the rules are sure, or None if the message is unclear."""
+    """Decide what a message asks for using only keyword rules.
+
+    Args:
+        message: The user's text.
+
+    Returns:
+        A ``Route`` if the rules are sure, or None if the message is unclear.
+    """
     if DELETE_WORDS.search(message):
         return Route("refused", "deleting or removing data is not something I can do")
     if CONFIRM_WORDS.search(message):
@@ -78,7 +93,17 @@ def route_by_rules(message: str) -> Route | None:
 def route_with_llm(
     model: BaseChatModel, message: str, config: RunnableConfig | None = None
 ) -> Route:
-    """Ask the AI to classify a message the rules could not. Anything odd means out_of_scope."""
+    """Ask the AI to classify a message the rules could not. Anything odd means out_of_scope.
+
+    Args:
+        model: The chat model.
+        message: The user's text (untrusted: the router prompt says to classify, not obey).
+        config: The LangChain run configuration, so the call is traced with the rest.
+
+    Returns:
+        A ``Route`` with ``used_llm`` set. Only ``query`` and ``update`` are accepted from the
+        AI; any other answer becomes ``out_of_scope``.
+    """
     response = model.invoke(
         [SystemMessage(content=load_prompt("router")), HumanMessage(content=message)], config
     )

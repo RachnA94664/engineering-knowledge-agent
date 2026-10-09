@@ -1,5 +1,4 @@
-"""
-Risk score and level. Derived in code, never stored in the database."""
+"""Risk score and level. Derived in code, never stored in the database."""
 
 from app.domain.errors import ValidationError
 
@@ -9,8 +8,7 @@ MEDIUM_THRESHOLD = 8
 
 
 def _check_scale(name: str, value: object) -> int:
-    """
-    Check if the value is a whole number from 1 to 5.
+    """Check if the value is a whole number from 1 to 5.
 
     Args:
         name: The name of the value to check.
@@ -28,8 +26,7 @@ def _check_scale(name: str, value: object) -> int:
 
 
 def risk_score(severity: int, likelihood: int) -> int:
-    """
-    Calculate the risk score.
+    """Calculate the risk score.
 
     Args:
         severity: The severity of the risk.
@@ -45,8 +42,7 @@ def risk_score(severity: int, likelihood: int) -> int:
 
 
 def risk_level(score: int) -> str:
-    """
-    Get the risk level.
+    """Get the risk level.
 
     Args:
         score: The risk score.
@@ -62,8 +58,7 @@ def risk_level(score: int) -> str:
 
 
 def level_for(severity: int, likelihood: int) -> str:
-    """
-    Get the risk level for the given severity and likelihood.
+    """Get the risk level for the given severity and likelihood.
 
     Args:
         severity: The severity of the risk.

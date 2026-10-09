@@ -8,8 +8,7 @@ from sqlalchemy.orm import Session
 
 @contextmanager
 def unit_of_work(session: Session) -> Iterator[Session]:
-    """
-    Unit of work: everything inside the `with` block commits together or not at all.
+    """Unit of work: everything inside the `with` block commits together or not at all.
 
     Args:
         session: The database session.

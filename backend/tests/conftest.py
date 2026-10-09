@@ -14,6 +14,8 @@ from pathlib import Path
 # tracing on in backend/.env. A real environment variable beats the .env file, so setting it
 # here, before anything from `app` is imported, keeps every test run offline.
 os.environ["LANGSMITH_TRACING"] = "false"
+# Same reason for the prompts: tests read the local files and never contact LangSmith Prompt Hub.
+os.environ["PROMPT_SOURCE"] = "local"
 
 import pytest  # noqa: E402
 from alembic import command

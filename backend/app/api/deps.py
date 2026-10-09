@@ -18,13 +18,23 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 @lru_cache
 def _runtime() -> AgentRuntime:
-    # Builds the graph once (the AI model itself is created lazily). The tracer is None unless
-    # LangSmith tracing is switched on in the settings.
+    """Build the agent runtime once per process.
+
+    The graph (and the system prompts) are built here; the AI model itself is created lazily.
+    The tracer is None unless LangSmith tracing is switched on in the settings.
+
+    Returns:
+        The shared runtime.
+    """
     return AgentRuntime(build_model_provider(), tracer=build_tracer())
 
 
 def get_runtime() -> AgentRuntime:
-    """The agent runtime. Tests replace this with one backed by a scripted fake model."""
+    """Provide the agent runtime to a route. Tests replace this with a scripted fake model.
+
+    Returns:
+        The shared runtime.
+    """
     return _runtime()
 
 

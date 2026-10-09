@@ -10,6 +10,17 @@ from app.core.config import get_settings
 
 
 def make_engine(url: str | None = None) -> Engine:
+    """Create the database engine.
+
+    For SQLite this also switches foreign keys on for every new connection (SQLite ignores
+    them otherwise) and allows the connection to be used from FastAPI's worker threads.
+
+    Args:
+        url: The database URL. Defaults to ``DATABASE_URL`` from the settings.
+
+    Returns:
+        The SQLAlchemy engine.
+    """
     url = url or get_settings().database_url
     kwargs: dict = {}
     if url.startswith("sqlite"):
@@ -35,7 +46,11 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 
 def get_session() -> Iterator[Session]:
-    """FastAPI dependency: one session per request, always closed."""
+    """Give a request its own database session and always close it afterwards.
+
+    Yields:
+        An open session, valid for the duration of one request.
+    """
     session = SessionLocal()
     try:
         yield session

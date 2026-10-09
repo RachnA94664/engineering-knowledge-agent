@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class StrictIn(BaseModel):
+    """Base of every request body: unknown fields are rejected, never ignored."""
+
     model_config = ConfigDict(extra="forbid")
 
 
@@ -17,12 +19,16 @@ class StrictIn(BaseModel):
 
 
 class ProposeChangeIn(StrictIn):
+    """Propose a change to a requirement. Nothing is applied until a person confirms it."""
+
     requirement_id: str = Field(examples=["REQ-007"])
     patch: dict[str, Any] = Field(examples=[{"status": "implemented"}])
     proposed_by: str = Field(min_length=1, max_length=64, examples=["rachna"])
 
 
 class ActorIn(StrictIn):
+    """Who is confirming, rejecting or reviewing (written to the audit log)."""
+
     actor: str = Field(min_length=1, max_length=64, examples=["rachna"])
 
 
@@ -30,6 +36,8 @@ class ActorIn(StrictIn):
 
 
 class RequirementOut(BaseModel):
+    """A requirement: something the product must do."""
+
     id: str
     title: str
     description: str
@@ -41,6 +49,8 @@ class RequirementOut(BaseModel):
 
 
 class TestCaseOut(BaseModel):
+    """A test case that verifies one requirement."""
+
     __test__ = False  # not a pytest class, despite the name
     id: str
     requirement_id: str
@@ -51,6 +61,8 @@ class TestCaseOut(BaseModel):
 
 
 class RiskOut(BaseModel):
+    """A risk item, with its derived score and level."""
+
     id: str
     title: str
     description: str
@@ -66,6 +78,8 @@ class RiskOut(BaseModel):
 
 
 class ChangeOut(BaseModel):
+    """A proposed change and where it stands (pending, applied, rejected or expired)."""
+
     id: int
     entity_type: str
     entity_id: str
@@ -78,11 +92,15 @@ class ChangeOut(BaseModel):
 
 
 class ProposeOut(BaseModel):
+    """A saved proposal and a preview of what it would change."""
+
     change: ChangeOut
     preview: dict[str, dict[str, Any]] = Field(description="field -> {old, new}")
 
 
 class ResetTestOut(BaseModel):
+    """A passing test case that an impact analysis reset to ``not_run``."""
+
     id: str
     title: str
     old_status: str
@@ -90,12 +108,16 @@ class ResetTestOut(BaseModel):
 
 
 class FailingTestOut(BaseModel):
+    """A linked test case that was already failing or blocked."""
+
     id: str
     title: str
     status: str
 
 
 class RiskToFlagOut(BaseModel):
+    """A linked risk that an impact analysis flagged for review."""
+
     id: str
     title: str
     score: int
@@ -121,6 +143,8 @@ class ImpactReportOut(BaseModel):
 
 
 class ConfirmOut(BaseModel):
+    """The result of confirming a change (the same result if it is confirmed twice)."""
+
     change: ChangeOut
     already_applied: bool
     requirement: RequirementOut | None = None
@@ -130,11 +154,15 @@ class ConfirmOut(BaseModel):
 
 
 class RejectOut(BaseModel):
+    """The result of rejecting a change (the same result if it is rejected twice)."""
+
     change: ChangeOut
     already_rejected: bool
 
 
 class AuditOut(BaseModel):
+    """One audit-log entry: who changed what, when, and the values before and after."""
+
     id: int
     ts: str | None
     actor: str
@@ -148,10 +176,14 @@ class AuditOut(BaseModel):
 
 
 class ChatIn(StrictIn):
+    """A message to the agents, in plain English (at most 1000 characters)."""
+
     message: str = Field(max_length=1000, examples=["Which requirements have no test cases?"])
 
 
 class ToolCallOut(BaseModel):
+    """One tool an agent ran: its name, its arguments and whether it succeeded."""
+
     name: str
     arguments: dict[str, Any]
     ok: bool
@@ -159,11 +191,15 @@ class ToolCallOut(BaseModel):
 
 
 class PendingChangeOut(BaseModel):
+    """A proposal the update agent saved, with its preview."""
+
     change: ChangeOut
     preview: dict[str, dict[str, Any]]
 
 
 class ChatOut(BaseModel):
+    """The agents' reply: the answer, the evidence behind it and any proposals."""
+
     answer: str
     intent: str = Field(description="query, update, out_of_scope or refused")
     grounded: bool = Field(description="True if the answer is backed by database results")
@@ -176,15 +212,21 @@ class ChatOut(BaseModel):
 
 
 class HealthOut(BaseModel):
+    """Whether the API is up and its database reachable and up to date."""
+
     status: str
     database: str
 
 
 class ErrorDetail(BaseModel):
+    """What went wrong: a stable ``code``, a readable ``message`` and optional ``details``."""
+
     code: str
     message: str
     details: dict[str, Any] = {}
 
 
 class ErrorOut(BaseModel):
+    """The one shape every error response has."""
+
     error: ErrorDetail

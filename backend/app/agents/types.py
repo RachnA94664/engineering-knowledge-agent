@@ -6,6 +6,21 @@ from typing import Any
 
 @dataclass
 class AgentResult:
+    """The outcome of one chat message, as handed to the API and the UI.
+
+    Attributes:
+        answer: The text shown to the user.
+        intent: What the message was routed as: query, update, analysis, out_of_scope or
+            refused.
+        grounded: True only if the answer passed the grounding check (or was written by code
+            from tool output).
+        refused: True when the system declined to act.
+        records: The records the tools returned (the evidence shown beside the answer).
+        tool_calls: Every tool that ran, with its arguments and outcome.
+        pending_changes: Proposals the update agent saved. Nothing is applied until a person
+            confirms each one.
+    """
+
     answer: str
     intent: str
     # True only if the answer passed the grounding check (or was written by code from tool output).

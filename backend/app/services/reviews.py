@@ -12,7 +12,21 @@ from app.services.uow import unit_of_work
 
 
 def mark_risk_reviewed(session: Session, risk_id: str, *, actor: str, source: str = "ui") -> dict:
-    """Clear a risk's review flag. Safe to repeat: an already-reviewed risk changes nothing."""
+    """Clear a risk's review flag. Safe to repeat: an already-reviewed risk changes nothing.
+
+    Args:
+        session: The database session.
+        risk_id: The ID of the risk, for example ``RISK-003``.
+        actor: The person who reviewed it (written to the audit log).
+        source: Where it came from: ``ui``, ``agent`` or ``system``.
+
+    Returns:
+        The risk as a dictionary, with its score and level.
+
+    Raises:
+        NotFound: If the risk does not exist.
+        ValidationError: If the ID or the actor is invalid (raised by the checks called).
+    """
     ensure_valid_id("risk", risk_id)
     check_who(actor, source)
     risk = risk_repo.get(session, risk_id)

@@ -14,7 +14,14 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
 
 def message_text(content: Any) -> str:
-    """A message's text, whether the provider returned a string or a list of parts."""
+    """Get a message's text, whether the provider returned a string or a list of parts.
+
+    Args:
+        content: The ``content`` of a LangChain message.
+
+    Returns:
+        The text, or an empty string if the content has no text.
+    """
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -38,8 +45,17 @@ class ToolEvent:
 
 
 def clean_framework_error(text: str) -> str:
-    """Shorten the framework's rejection text to the useful part, e.g.
-    "new_priority: Extra inputs are not permitted" (no tool name, no argument dump)."""
+    """Shorten the framework's rejection text to the useful part.
+
+    For example ``new_priority: Extra inputs are not permitted``, with no tool name and no
+    dump of the arguments.
+
+    Args:
+        text: The framework's error text for a tool call it refused to run.
+
+    Returns:
+        A short, readable reason.
+    """
     # The framework embeds its message inside an exception's text, so line breaks can arrive as
     # the two characters backslash + n. Turn them back into real breaks first.
     text = text.replace("\\n", "\n")
@@ -53,6 +69,15 @@ def clean_framework_error(text: str) -> str:
 
 
 def tool_events(messages: list[BaseMessage]) -> list[ToolEvent]:
+    """Turn the tool messages of a run into one ``ToolEvent`` per tool call.
+
+    Args:
+        messages: The messages of a finished (or stopped) graph run.
+
+    Returns:
+        The tool runs in order. A call the framework refused before our code ran (bad
+        arguments, unknown tool) becomes a failed event with the code ``invalid_call``.
+    """
     arguments_by_call_id: dict[str, dict] = {}
     for message in messages:
         if isinstance(message, AIMessage):
@@ -86,6 +111,12 @@ def evidence_texts(messages: list[BaseMessage]) -> list[str]:
 
     Only these count as evidence. A call the framework rejected (bad arguments, unknown
     tool) never touched the database, so it proves nothing and must not let an answer pass.
+
+    Args:
+        messages: The messages of a finished (or stopped) graph run.
+
+    Returns:
+        One text per tool call that really ran our code.
     """
     return [
         message_text(m.content)
@@ -95,6 +126,14 @@ def evidence_texts(messages: list[BaseMessage]) -> list[str]:
 
 
 def _flatten(result: Any) -> list[dict]:
+    """Reduce a tool result to the list of records inside it.
+
+    Args:
+        result: A tool's ``result``: a list of records, one record, or a proposal.
+
+    Returns:
+        The records (a proposal contributes its ``change``).
+    """
     if isinstance(result, list):
         return [r for r in result if isinstance(r, dict)]
     if isinstance(result, dict):
@@ -104,7 +143,14 @@ def _flatten(result: Any) -> list[dict]:
 
 
 def collect_records(events: list[ToolEvent]) -> list[dict]:
-    """The distinct records the tools returned (the evidence shown beside the answer)."""
+    """Collect the distinct records the tools returned (shown beside the answer as evidence).
+
+    Args:
+        events: The tool runs of one chat message.
+
+    Returns:
+        Each record once, in the order first seen. Failed tool runs contribute nothing.
+    """
     records: list[dict] = []
     seen: set[str] = set()
     for event in events:
@@ -119,7 +165,14 @@ def collect_records(events: list[ToolEvent]) -> list[dict]:
 
 
 def tool_trace(events: list[ToolEvent]) -> list[dict]:
-    """A short, safe description of every tool that ran."""
+    """Describe every tool that ran, briefly and safely (the "tool trace" shown to the user).
+
+    Args:
+        events: The tool runs of one chat message.
+
+    Returns:
+        One entry per run with its ``name``, ``arguments``, ``ok`` flag and ``error``.
+    """
     return [
         {"name": e.name, "arguments": e.arguments, "ok": e.ok, "error": e.error} for e in events
     ]

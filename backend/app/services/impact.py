@@ -34,9 +34,18 @@ def analyze_and_apply(
 ) -> dict:
     """Analyse a just-applied change, apply its effects and store the report.
 
+    Runs inside the caller's transaction; nothing is committed here.
+
     Args:
-        old_values / new_values: the fields that changed, before and after.
-        priority_after: the requirement's priority after the change.
+        session: The database session.
+        requirement_id: The requirement that was changed.
+        old_values: The fields that changed, with their values before the change.
+        new_values: The same fields, with their values after the change.
+        priority_after: The requirement's priority after the change.
+        change_id: The applied change this analysis belongs to.
+
+    Returns:
+        The stored impact report, with its row id, change id and creation time.
     """
     tests = [
         {"id": t.id, "title": t.title, "status": t.status}

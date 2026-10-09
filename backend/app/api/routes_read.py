@@ -11,7 +11,15 @@ router = APIRouter()
 
 @router.get("/requirements", response_model=list[RequirementOut], tags=["requirements"])
 def list_requirements(session: SessionDep):
-    """All requirements."""
+    """List all requirements.
+
+    \f
+    Args:
+        session: The database session.
+
+    Returns:
+        Every requirement, ordered by ID.
+    """
     return knowledge.list_requirements(session)
 
 
@@ -21,7 +29,15 @@ def list_requirements(session: SessionDep):
     "/requirements/without-tests", response_model=list[RequirementOut], tags=["requirements"]
 )
 def requirements_without_tests(session: SessionDep):
-    """Requirements that have no test cases."""
+    """List the requirements that have no test cases.
+
+    \f
+    Args:
+        session: The database session.
+
+    Returns:
+        Those requirements.
+    """
     return knowledge.list_requirements_without_tests(session)
 
 
@@ -32,7 +48,16 @@ def requirements_without_tests(session: SessionDep):
     tags=["requirements"],
 )
 def get_requirement(requirement_id: str, session: SessionDep):
-    """One requirement by id, for example REQ-001."""
+    """Get one requirement by id, for example REQ-001.
+
+    \f
+    Args:
+        requirement_id: The requirement's ID.
+        session: The database session.
+
+    Returns:
+        The requirement. A missing one gives a 404 error.
+    """
     return knowledge.get_requirement(session, requirement_id)
 
 
@@ -43,7 +68,16 @@ def get_requirement(requirement_id: str, session: SessionDep):
     tags=["requirements"],
 )
 def test_cases_for_requirement(requirement_id: str, session: SessionDep):
-    """Test cases that belong to a requirement."""
+    """List the test cases that belong to a requirement.
+
+    \f
+    Args:
+        requirement_id: The requirement's ID.
+        session: The database session.
+
+    Returns:
+        Its test cases (an empty list if it has none).
+    """
     return knowledge.get_test_cases_for_requirement(session, requirement_id)
 
 
@@ -54,7 +88,16 @@ def test_cases_for_requirement(requirement_id: str, session: SessionDep):
     tags=["requirements"],
 )
 def requirement_impact(requirement_id: str, session: SessionDep):
-    """The latest impact report: what the last confirmed change to this requirement affected."""
+    """Get the latest impact report: what the last confirmed change to this requirement affected.
+
+    \f
+    Args:
+        requirement_id: The requirement's ID.
+        session: The database session.
+
+    Returns:
+        The report. A 404 means no change to it has been confirmed yet.
+    """
     return knowledge.get_impact(session, requirement_id)
 
 
@@ -64,6 +107,15 @@ def list_risks(session: SessionDep, level: str | None = None, needs_review: bool
 
     Filter with ?level=high (low, medium or high) and/or ?needs_review=true to see the risks
     that a confirmed change flagged for review.
+
+    \f
+    Args:
+        session: The database session.
+        level: Only risks of this level.
+        needs_review: Only risks that are (true) or are not (false) flagged for review.
+
+    Returns:
+        The matching risks, each with its derived score and level.
     """
     return knowledge.list_risks(session, level, needs_review)
 
@@ -72,5 +124,15 @@ def list_risks(session: SessionDep, level: str | None = None, needs_review: bool
     "/audit-log", response_model=list[AuditOut], responses={422: ERRORS[422]}, tags=["audit"]
 )
 def audit_log(session: SessionDep, limit: int = 50, entity_id: str | None = None):
-    """Most recent audit entries first (1 to 500). Optional ?entity_id=REQ-001."""
+    """List the most recent audit entries first (1 to 500). Optional ?entity_id=REQ-001.
+
+    \f
+    Args:
+        session: The database session.
+        limit: How many entries to return.
+        entity_id: Only entries about this record.
+
+    Returns:
+        The audit entries, newest first.
+    """
     return knowledge.audit_log(session, limit, entity_id)

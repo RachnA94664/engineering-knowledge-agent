@@ -5,7 +5,31 @@ target-version = "py312"
 extend-exclude = ["migrations/versions", "data/gen_seed.py"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B"]
+# D = docstring rules. The project uses the Google style: a one-line summary, then optional
+# Args / Returns / Raises sections (see the README, "Docstrings").
+# DOC201 / DOC402 / DOC501 check that Returns, Yields and Raises sections exist when the
+# function returns, yields or raises. They are "preview" rules in ruff, so preview is switched
+# on but ONLY these rules are opted in (explicit-preview-rules), and ruff's version is pinned in
+# requirements-dev.txt so the behaviour cannot change under us.
+preview = true
+explicit-preview-rules = true
+select = ["E", "F", "I", "UP", "B", "D", "DOC201", "DOC402", "DOC501"]
+# Not required: a docstring in every empty package __init__.py (D104), on magic methods
+# (D105) and on __init__ (D107, the class docstring describes construction).
+ignore = ["D104", "D105", "D107"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and Alembic's own env.py are not part of the documented API.
+"tests/**" = ["D", "DOC"]
+"migrations/**" = ["D", "DOC"]
+# FastAPI shows a route's docstring on the /docs page, but cuts it at a form feed (\f).
+# Route docstrings put \f before "Args:" so the page stays clean and developers still get the
+# full docstring. D301 would object to the backslash.
+"app/api/routes_*.py" = ["D301"]
+"app/main.py" = ["D301"]  # the /health route lives here
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
