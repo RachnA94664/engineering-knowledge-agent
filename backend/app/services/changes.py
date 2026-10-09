@@ -1,0 +1,271 @@
+"""Propose, confirm and reject changes to requirements.
+
+The safety design:
+  * propose  -> saves a PENDING change. Nothing is applied.
+  * confirm  -> ONE transaction: check version, apply, bump version, audit, impact analysis.
+  * reject   -> closes the pending change without applying it.
+Every step writes an audit row in the same transaction as the data change. Confirming also runs
+the automatic impact analysis (services/impact.py) in that same transaction.
+"""
+
+import json
+from datetime import UTC, datetime
+
+from sqlalchemy.orm import Session
+
+from app.domain.errors import Conflict, NotFound
+from app.domain.ids import ensure_valid_id
+from app.domain.requirement_rules import validate_patch
+from app.repositories import audit as audit_repo
+from app.repositories import impact as impact_repo
+from app.repositories import pending as pending_repo
+from app.repositories import requirements as req_repo
+from app.services import impact as impact_service
+from app.services.checks import check_who as _check_who
+from app.services.serializers import change_to_dict, impact_to_dict, requirement_to_dict
+from app.services.uow import unit_of_work
+
+ENTITY = "requirement"
+
+
+def _now() -> datetime:
+    """Get the current time in UTC.
+
+    Returns:
+        The current time, with its timezone attached.
+    """
+    return datetime.now(UTC)
+
+
+def _get_change(session: Session, change_id: int):
+    """Get a change by its ID.
+
+    Args:
+        session: The database session.
+        change_id: The ID of the change.
+
+    Returns:
+        The change row.
+
+    Raises:
+        NotFound: If there is no such change.
+    """
+    change = pending_repo.get(session, change_id)
+    if change is None:
+        raise NotFound(f"change {change_id} does not exist")
+    return change
+
+
+def propose_requirement_change(
+    session: Session, requirement_id: str, patch: object, *, proposed_by: str, source: str = "ui"
+) -> dict:
+    """Validate a change and save it as pending. Changes NOTHING about the requirement.
+
+    Args:
+        session: The database session.
+        requirement_id: The ID of the requirement to change, for example ``REQ-006``.
+        patch: The proposed change: the fields to change and their new values.
+        proposed_by: Who is proposing it (a person's name or the agent's name).
+        source: Where it came from: ``ui``, ``agent`` or ``system``.
+
+    Returns:
+        A dictionary with ``change`` (the saved pending change) and ``preview`` (for each
+        field, its current value and the proposed one).
+
+    Raises:
+        NotFound: If the requirement does not exist.
+        ValidationError: If the ID, the actor or the patch is invalid (raised by the checks
+            this function calls).
+    """
+    ensure_valid_id("requirement", requirement_id)
+    _check_who(proposed_by, source)
+    req = req_repo.get(session, requirement_id)
+    if req is None:
+        raise NotFound(f"requirement {requirement_id} does not exist")
+
+    clean = validate_patch(requirement_to_dict(req), patch)
+
+    with unit_of_work(session):
+        change = pending_repo.add(
+            session,
+            entity_type=ENTITY,
+            entity_id=requirement_id,
+            patch=clean,
+            base_version=req.version,
+            proposed_by=proposed_by,
+        )
+        audit_repo.add_entry(
+            session,
+            actor=proposed_by,
+            source=source,
+            entity_type=ENTITY,
+            entity_id=requirement_id,
+            action="propose",
+            new={"change_id": change.id, "patch": clean},
+        )
+
+    preview = {f: {"old": getattr(req, f), "new": v} for f, v in clean.items()}
+    return {"change": change_to_dict(change), "preview": preview}
+
+
+def _expire(session: Session, change, actor: str, source: str, reason: str) -> None:
+    """Expire a change.
+
+    Args:
+        session: The database session.
+        change: The change to expire.
+        actor: The actor making the change.
+        source: The source of the change.
+        reason: The reason for expiring the change.
+    """
+    with unit_of_work(session):
+        change.status = "expired"
+        change.resolved_at = _now()
+        audit_repo.add_entry(
+            session,
+            actor=actor,
+            source=source,
+            entity_type=ENTITY,
+            entity_id=change.entity_id,
+            action="expire",
+            new={"change_id": change.id, "reason": reason},
+        )
+
+
+def confirm_change(session: Session, change_id: int, *, actor: str, source: str = "ui") -> dict:
+    """Apply a pending change. Safe to call twice: the second call changes nothing.
+
+    Everything happens in ONE transaction: the version check, the update, the version bump,
+    the audit row and the automatic impact analysis. If any part fails, nothing is saved.
+
+    Args:
+        session: The database session.
+        change_id: The ID of the pending change.
+        actor: The person confirming it.
+        source: Where it came from: ``ui``, ``agent`` or ``system``.
+
+    Returns:
+        A dictionary with ``change``, ``already_applied`` and ``impact`` (the impact report),
+        plus ``requirement`` (the updated requirement) when the change was applied now.
+
+    Raises:
+        NotFound: If the change or its requirement does not exist.
+        Conflict: If the change is not pending, or the requirement changed after the change
+            was proposed (the proposal is then marked ``expired`` and must be made again).
+    """
+    _check_who(actor, source)
+    change = _get_change(session, change_id)
+
+    if change.status == "applied":
+        # Confirming again changes nothing and returns the SAME report (no second analysis).
+        stored = impact_repo.get_for_change(session, change_id)
+        return {
+            "change": change_to_dict(change),
+            "already_applied": True,
+            "impact": impact_to_dict(stored) if stored else None,
+        }
+    if change.status != "pending":
+        raise Conflict(f"change {change_id} is {change.status}, so it cannot be confirmed")
+
+    req = req_repo.get(session, change.entity_id)
+    if req is None:
+        raise NotFound(f"requirement {change.entity_id} does not exist")
+
+    if req.version != change.base_version:
+        _expire(session, change, actor, source, "requirement changed since the proposal")
+        raise Conflict(
+            "the requirement was changed after this change was proposed; propose it again",
+            details={"base_version": change.base_version, "current_version": req.version},
+        )
+
+    patch = json.loads(change.proposed_patch)
+    with unit_of_work(session):
+        # Re-check the rules against the CURRENT values before applying.
+        clean = validate_patch(requirement_to_dict(req), patch)
+        old = {field: getattr(req, field) for field in clean}
+
+        if not req_repo.update_if_version(session, req.id, change.base_version, clean):
+            raise Conflict("another change was applied at the same moment; propose it again")
+
+        change.status = "applied"
+        change.resolved_at = _now()
+        audit_repo.add_entry(
+            session,
+            actor=actor,
+            source=source,
+            entity_type=ENTITY,
+            entity_id=req.id,
+            action="update",
+            old=old,
+            new=clean,
+        )
+
+        # The automatic workflow: find what this change affects and apply those effects. It
+        # runs in THIS transaction: if any part fails, the whole confirm is undone.
+        impact = impact_service.analyze_and_apply(
+            session,
+            requirement_id=req.id,
+            old_values=old,
+            new_values=clean,
+            priority_after=clean.get("priority", req.priority),
+            change_id=change.id,
+        )
+        session.refresh(req)  # pick up the new version and values
+
+    return {
+        "change": change_to_dict(change),
+        "already_applied": False,
+        "requirement": requirement_to_dict(req),
+        "impact": impact,
+    }
+
+
+def reject_change(session: Session, change_id: int, *, actor: str, source: str = "ui") -> dict:
+    """Close a pending change without applying it. Safe to call twice.
+
+    Args:
+        session: The database session.
+        change_id: The ID of the change to reject.
+        actor: The person rejecting it.
+        source: Where it came from: ``ui``, ``agent`` or ``system``.
+
+    Returns:
+        A dictionary with ``change`` and ``already_rejected``.
+
+    Raises:
+        NotFound: If the change does not exist.
+        Conflict: If the change was already applied or has expired.
+    """
+    _check_who(actor, source)
+    change = _get_change(session, change_id)
+
+    if change.status == "rejected":
+        return {"change": change_to_dict(change), "already_rejected": True}
+    if change.status != "pending":
+        raise Conflict(f"change {change_id} is {change.status}, so it cannot be rejected")
+
+    with unit_of_work(session):
+        change.status = "rejected"
+        change.resolved_at = _now()
+        audit_repo.add_entry(
+            session,
+            actor=actor,
+            source=source,
+            entity_type=ENTITY,
+            entity_id=change.entity_id,
+            action="reject",
+            new={"change_id": change.id},
+        )
+    return {"change": change_to_dict(change), "already_rejected": False}
+
+
+def list_pending_changes(session: Session) -> list[dict]:
+    """List all pending changes.
+
+    Args:
+        session: The database session.
+
+    Returns:
+        The pending changes, oldest first.
+    """
+    return [change_to_dict(c) for c in pending_repo.list_by_status(session, "pending")]
