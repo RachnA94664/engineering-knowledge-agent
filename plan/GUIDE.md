@@ -22,7 +22,7 @@ Status: ✅ done, 🔄 in progress, ⬜ not started.
 | 11 | CI | ✅ |
 | 12 | Deployment | ⬜ |
 | 13 | README and polish | ⬜ |
-| 14 | Change-it-later cheat sheet | reference |
+
 
 **Free hosting** (check current limits before you start, free tiers change):
 frontend on Vercel/Netlify/Cloudflare Pages; backend (Docker) on Render. SQLite lives
@@ -354,20 +354,8 @@ Done when
 - [x] A deliberately broken test turned the Backend job red (1 failed, 414 passed); reverting it turned it green
 - [x] The checks are required on `develop` and `main`
 - [x] PR merged
-- [ ] Status badge in the README (added in Phase 13)
 
-## Phase 12: Deployment ⬜
-
-Mini steps: Render web service (Docker, root `backend`, health check `/health`, env vars
-`OPENAI_API_KEY`, `OPENAI_MODEL`, `ALLOWED_ORIGINS`, optional `LANGSMITH_*`); Vercel project
-(root `frontend`, `VITE_API_URL`); set `ALLOWED_ORIGINS` to the Vercel URL; **add simple
-rate limiting**, because a public URL can spend your OpenAI credit; spending limit set.
-
-Done when
-- [ ] The public site answers the five sample questions
-- [ ] No CORS errors; keys only in host environment variables; `/health` is OK
-
-## Phase 13: README and polish ⬜
+## Phase 12: README and polish ⬜
 
 Mini steps: README (what it does, architecture, database design, agent design, rules,
 how to run locally and with Docker, example queries, limitations, decisions and why, live
@@ -378,7 +366,7 @@ Done when
 - [ ] A stranger can run it from the README alone
 - [ ] The Definition of Done in PLAN.md is fully ticked
 
-## Phase 14: Change-it-later cheat sheet
+## Phase 13: Change-it-later cheat sheet
 
 | I want to… | Change this | Then |
 |---|---|---|
