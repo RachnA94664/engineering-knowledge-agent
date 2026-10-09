@@ -9,8 +9,7 @@ from app.db.models import Requirement, TestCase
 
 
 def get(session: Session, requirement_id: str) -> Requirement | None:
-    """
-    Get a requirement by its ID.
+    """Get a requirement by its ID.
 
     Args:
         session: The database session.
@@ -23,8 +22,7 @@ def get(session: Session, requirement_id: str) -> Requirement | None:
 
 
 def list_all(session: Session) -> list[Requirement]:
-    """
-    List all requirements.
+    """List all requirements.
 
     Args:
         session: The database session.
@@ -36,8 +34,7 @@ def list_all(session: Session) -> list[Requirement]:
 
 
 def list_without_tests(session: Session) -> list[Requirement]:
-    """
-    Requirements that no test case points at.
+    """Requirements that no test case points at.
 
     Args:
         session: The database session.
@@ -52,8 +49,7 @@ def list_without_tests(session: Session) -> list[Requirement]:
 def update_if_version(
     session: Session, requirement_id: str, base_version: int, values: dict
 ) -> bool:
-    """
-    Optimistic locking: update only if nobody else changed the row meanwhile.
+    """Optimistic locking: update only if nobody else changed the row meanwhile.
 
     The WHERE clause includes `version == base_version`. If another change got
     there first, no row matches and we return False.

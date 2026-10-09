@@ -36,21 +36,29 @@ DATA_REMINDER = (
 
 
 # ---------- argument models (also produce the JSON schema the AI sees) ----------
+# NOTE: the class docstrings below are part of that schema, so the AI reads them. They are
+# written for the AI first and for people second.
 
 
 class _Args(BaseModel):
+    """Base of every argument model: unknown arguments are rejected, never ignored."""
+
     model_config = ConfigDict(extra="forbid")
 
 
 class NoArgs(_Args):
-    pass
+    """This tool takes no arguments."""
 
 
 class RequirementIdArgs(_Args):
+    """Identify one requirement."""
+
     requirement_id: str = Field(description="A requirement id such as REQ-001")
 
 
 class RiskListArgs(_Args):
+    """Optional filters for the list of risks."""
+
     level: Literal["low", "medium", "high"] | None = Field(
         default=None, description="Only risks of this level. Omit for all risks."
     )
@@ -61,11 +69,15 @@ class RiskListArgs(_Args):
 
 
 class AuditArgs(_Args):
+    """How much of the audit log to show, and optionally for which record."""
+
     limit: int = Field(default=20, ge=1, le=100, description="How many entries (newest first)")
     entity_id: str | None = Field(default=None, description="Only entries about this id")
 
 
 class ProposeArgs(_Args):
+    """A requirement and ONLY the fields that should change (a proposal, not an edit)."""
+
     requirement_id: str = Field(description="The requirement to change, such as REQ-007")
     title: str | None = Field(default=None, description="New title")
     description: str | None = Field(default=None, description="New description")
@@ -81,7 +93,17 @@ class ProposeArgs(_Args):
 
 
 def execute(handler: Callable[[Session, Any], Any], session: Session, args: BaseModel) -> dict:
-    """Run a handler. Expected problems become {"ok": False, "error": ...} instead of raising."""
+    """Run a handler. Expected problems become ``{"ok": False, "error": ...}`` instead of raising.
+
+    Args:
+        handler: The service call to run.
+        session: The database session, injected by us (never chosen by the AI).
+        args: The validated arguments.
+
+    Returns:
+        ``{"ok": True, "result": ...}``, or ``{"ok": False, "error": {"code", "message"}}`` for
+        a domain error such as "not found" or "invalid transition".
+    """
     try:
         return {"ok": True, "result": handler(session, args)}
     except DomainError as exc:
@@ -101,6 +123,16 @@ def make_tool(
     The model sees only `name`, `description` and the argument schema. The tool returns
     two things: text for the model (the data, labelled as data) and the raw outcome as an
     "artifact" that WE use for the records, the trace and the grounding check.
+
+    Args:
+        name: The tool name the model uses to call it.
+        description: What the tool does, written for the model.
+        args_model: The Pydantic model of its arguments (unknown arguments are rejected).
+        handler: The service call to run.
+        writes: True only for a tool that writes. The only write tool PROPOSES a change.
+
+    Returns:
+        The LangChain tool.
     """
 
     def run(config: RunnableConfig, **kwargs: Any) -> tuple[str, dict]:
@@ -124,6 +156,14 @@ def make_tool(
 
 
 def is_write_tool(tool: StructuredTool) -> bool:
+    """Tell whether a tool writes anything.
+
+    Args:
+        tool: A tool built by ``make_tool``.
+
+    Returns:
+        True if it was created with ``writes=True`` (only the propose tool is).
+    """
     return bool((tool.metadata or {}).get("writes"))
 
 
@@ -131,6 +171,15 @@ def is_write_tool(tool: StructuredTool) -> bool:
 
 
 def _propose(session: Session, a: ProposeArgs) -> dict:
+    """Save a proposed change as the agent. Nothing is applied until a person confirms it.
+
+    Args:
+        session: The database session.
+        a: The requirement and the fields to change.
+
+    Returns:
+        The saved pending change and its preview (see ``propose_requirement_change``).
+    """
     patch = a.model_dump(exclude={"requirement_id"}, exclude_none=True)
     return changes.propose_requirement_change(
         session, a.requirement_id, patch, proposed_by=AGENT_ACTOR, source=AGENT_SOURCE

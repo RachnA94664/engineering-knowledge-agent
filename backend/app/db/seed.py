@@ -37,6 +37,8 @@ def _not_blank(value: str, name: str) -> str:
 
 
 class RequirementRow(BaseModel):
+    """One requirement from the seed file, checked before it is inserted."""
+
     id: str
     title: str
     description: str = ""
@@ -67,6 +69,8 @@ class RequirementRow(BaseModel):
 
 
 class TestCaseRow(BaseModel):
+    """One test case from the seed file, checked before it is inserted."""
+
     __test__ = False  # not a pytest test class
     id: str
     requirement_id: str
@@ -94,6 +98,8 @@ class TestCaseRow(BaseModel):
 
 
 class RiskRow(BaseModel):
+    """One risk item from the seed file; severity and likelihood must be 1 to 5."""
+
     id: str
     title: str
     description: str = ""
@@ -127,16 +133,25 @@ class RiskRow(BaseModel):
 
 
 class LinkRow(BaseModel):
+    """One requirement-to-risk link from the seed file (both ends are checked later)."""
+
     requirement_id: str
     risk_id: str
 
 
 @dataclass
 class SeedReport:
+    """What a seed run did: the rows that went in, and the rows rejected with their reason."""
+
     inserted: dict[str, int] = field(default_factory=dict)
     rejected: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
+        """Describe the run in plain text.
+
+        Returns:
+            One ``inserted N ...`` line per table, then one ``REJECTED ...`` line per bad row.
+        """
         lines = [f"inserted {n} {name}" for name, n in self.inserted.items()]
         lines += [f"REJECTED {r}" for r in self.rejected]
         return "\n".join(lines)
@@ -145,7 +160,17 @@ class SeedReport:
 def _validate_rows(
     rows: list[dict[str, Any]], model: type[BaseModel], label: str, report: SeedReport
 ) -> list[BaseModel]:
-    """Validate each row, never raising: bad rows go into the report."""
+    """Validate each row, never raising: bad rows go into the report.
+
+    Args:
+        rows: The raw rows from the seed file.
+        model: The Pydantic model that describes a valid row.
+        label: The table name, used in the report (for example ``requirements``).
+        report: Where the reason for every rejected row is recorded.
+
+    Returns:
+        The rows that passed validation, as model instances.
+    """
     good: list[BaseModel] = []
     for i, raw in enumerate(rows):
         # Ignore helper keys such as "_reason" used in the invalid-example file.
@@ -161,7 +186,17 @@ def _validate_rows(
 def _drop_duplicates(
     items: list[Any], label: str, report: SeedReport, existing: set[str]
 ) -> list[Any]:
-    """Reject IDs repeated in the file OR already present in the database."""
+    """Reject IDs repeated in the file OR already present in the database.
+
+    Args:
+        items: Validated rows (each has an ``id``).
+        label: The table name, used in the report.
+        report: Where each duplicate is recorded.
+        existing: IDs that are already stored in the database.
+
+    Returns:
+        The rows whose ID has not been seen before.
+    """
     seen: set[str] = set(existing)
     unique = []
     for item in items:
@@ -174,7 +209,20 @@ def _drop_duplicates(
 
 
 def load_seed(session: Session, data: dict[str, Any]) -> SeedReport:
-    """Validate then insert, all in ONE transaction (all or nothing for the inserts)."""
+    """Validate the seed data, then insert it in ONE transaction.
+
+    Every row is checked first (format, allowed values, ranges, duplicate IDs, and that test
+    cases and links point at records that exist). Bad rows are skipped and reported; the good
+    rows are inserted parents first, with a single commit at the end.
+
+    Args:
+        session: An open database session.
+        data: The parsed seed file, with the keys ``requirements``, ``test_cases``,
+            ``risk_items`` and ``requirement_risks``.
+
+    Returns:
+        A report of what was inserted and which rows were rejected, and why.
+    """
     report = SeedReport()
     existing_req = set(session.scalars(select(models.Requirement.id)))
     existing_risk = set(session.scalars(select(models.RiskItem.id)))
@@ -248,6 +296,11 @@ def load_seed(session: Session, data: dict[str, Any]) -> SeedReport:
 
 
 def main() -> None:
+    """Run the seed from the command line: ``python -m app.db.seed [--file PATH] [--if-empty]``.
+
+    Prints how many rows were inserted and why any row was rejected. With ``--if-empty`` it
+    does nothing when requirements already exist, so it is safe to run on every start.
+    """
     parser = argparse.ArgumentParser(description="Validate and load seed data.")
     parser.add_argument("--file", type=Path, default=DEFAULT_FILE)
     parser.add_argument(

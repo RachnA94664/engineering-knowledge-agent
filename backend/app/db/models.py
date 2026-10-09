@@ -36,6 +36,18 @@ class UTCDateTime(TypeDecorator):
     cache_ok = True
 
     def process_bind_param(self, value, dialect):
+        """Prepare a timestamp for storing: it must carry a timezone and is saved as UTC.
+
+        Args:
+            value: The timestamp to store, or None.
+            dialect: The database dialect (unused; part of SQLAlchemy's interface).
+
+        Returns:
+            The timestamp converted to UTC, or None.
+
+        Raises:
+            ValueError: If the timestamp has no timezone attached.
+        """
         if value is None:
             return None
         if value.tzinfo is None:
@@ -43,13 +55,30 @@ class UTCDateTime(TypeDecorator):
         return value.astimezone(UTC)
 
     def process_result_value(self, value, dialect):
+        """Rebuild a stored timestamp: SQLite forgets the timezone, so UTC is put back.
+
+        Args:
+            value: The timestamp as read from the database, or None.
+            dialect: The database dialect (unused; part of SQLAlchemy's interface).
+
+        Returns:
+            A timezone-aware UTC timestamp, or None.
+        """
         if value is None:
             return None
         return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
-    """Build `column IN ('a','b')` for a CHECK constraint."""
+    """Build ``column IN ('a','b')`` for a CHECK constraint.
+
+    Args:
+        column: The column name.
+        values: The allowed values.
+
+    Returns:
+        The SQL text of the condition.
+    """
     return f"{column} IN ({', '.join(repr(v) for v in values)})"
 
 
@@ -58,10 +87,16 @@ def _now() -> datetime:
 
 
 class Base(DeclarativeBase):
-    pass
+    """The base class of every table class below."""
 
 
 class Requirement(Base):
+    """A requirement: something the product must do (``REQ-001``).
+
+    ``version`` goes up on every change and is used for optimistic locking: a proposed change
+    remembers the version it was based on and cannot be applied if the requirement moved on.
+    """
+
     __tablename__ = "requirements"
     __table_args__ = (
         CheckConstraint(f"id GLOB '{enums.REQ_ID_GLOB}'", name="ck_requirements_id_format"),
@@ -84,6 +119,8 @@ class Requirement(Base):
 
 
 class TestCase(Base):
+    """A test case that verifies exactly one requirement (``TC-001``)."""
+
     __tablename__ = "test_cases"
     __test__ = False  # stop pytest treating this class as a test class
     __table_args__ = (

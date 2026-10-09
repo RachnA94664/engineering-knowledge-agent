@@ -1,6 +1,9 @@
-"""Ask the agents a question from the terminal (uses your OPENAI_API_KEY from .env).
+"""Ask the agents a question from the terminal.
 
-python -m app.agents.cli "Which requirements have no test cases?"
+Uses whichever AI ``LLM_PROVIDER`` selects (Groq, Ollama or OpenAI, with the keys from
+``backend/.env``)::
+
+    python -m app.agents.cli "Which requirements have no test cases?"
 """
 
 import sys
@@ -12,6 +15,13 @@ from app.db.session import SessionLocal
 
 
 def main() -> None:
+    """Run one question through the agents and print the answer, tools used and records.
+
+    The question is taken from the command-line arguments.
+
+    Raises:
+        SystemExit: With status 2 (after printing a usage message) when no question is given.
+    """
     if len(sys.argv) < 2:
         print('usage: python -m app.agents.cli "your question"')
         raise SystemExit(2)

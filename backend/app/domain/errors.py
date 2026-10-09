@@ -17,18 +17,26 @@ class DomainError(Exception):
 
 
 class ValidationError(DomainError):
+    """The input breaks a rule: a bad value, a missing field or a wrong format (HTTP 422)."""
+
     code = "validation_error"
 
 
 class InvalidTransition(DomainError):
+    """A status change that the requirement lifecycle does not allow (HTTP 409)."""
+
     code = "invalid_transition"
 
 
 class NotFound(DomainError):
+    """The record that was asked for does not exist (HTTP 404)."""
+
     code = "not_found"
 
 
 class Conflict(DomainError):
+    """The request clashes with the current state, for example a stale proposal (HTTP 409)."""
+
     code = "conflict"
 
 

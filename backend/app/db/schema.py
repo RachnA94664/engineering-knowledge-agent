@@ -19,7 +19,11 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 @lru_cache
 def head_revision() -> str:
-    """The newest migration shipped with this code."""
+    """Find the newest migration shipped with this code.
+
+    Returns:
+        The id of the newest ("head") migration revision.
+    """
     config = Config()
     config.set_main_option("script_location", str(BACKEND_DIR / "migrations"))
     head = ScriptDirectory.from_config(config).get_current_head()
@@ -28,7 +32,14 @@ def head_revision() -> str:
 
 
 def current_revision(session: Session) -> str | None:
-    """The migration the database is at, or None if it was never migrated."""
+    """Read which migration the database is at.
+
+    Args:
+        session: An open database session.
+
+    Returns:
+        The revision id the database is at, or None if it was never migrated.
+    """
     try:
         return session.execute(text("SELECT version_num FROM alembic_version")).scalar()
     except Exception:  # the alembic_version table does not exist
@@ -37,7 +48,15 @@ def current_revision(session: Session) -> str | None:
 
 
 def schema_problem(session: Session) -> str | None:
-    """A plain-English description of the problem, or None if the schema is current."""
+    """Compare the database's migration with the one the code expects.
+
+    Args:
+        session: An open database session.
+
+    Returns:
+        A plain-English description of the problem (including the command that fixes it),
+        or None if the schema is current.
+    """
     current, head = current_revision(session), head_revision()
     if current == head:
         return None

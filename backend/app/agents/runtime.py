@@ -22,13 +22,35 @@ MAX_MESSAGE_CHARS = 1000
 
 
 class AgentRuntime:
+    """Runs the agent graph for chat messages and turns any failure into a safe result."""
+
     def __init__(self, get_model: ModelFactory, tracer=None):
-        """`tracer`: an optional LangSmith tracer (see core/tracing.py). None = no tracing."""
+        """Create the runtime and build the agent graph.
+
+        Args:
+            get_model: Returns the chat model (real, or scripted in tests).
+            tracer: An optional LangSmith tracer (see ``core/tracing.py``). None means no
+                tracing.
+        """
         self._get_model = get_model
         self._tracer = tracer
         self._graph = build_graph(get_model)
 
     def run(self, session: Session, message: str) -> AgentResult:
+        """Answer one chat message.
+
+        Args:
+            session: The database session the tools will use.
+            message: What the user wrote.
+
+        Returns:
+            The answer with its records, tool trace and any proposals.
+
+        Raises:
+            ValidationError: If the message is empty or longer than ``MAX_MESSAGE_CHARS``.
+            ServiceUnavailable: If the AI provider fails (the original error text is never
+                shown to the user).
+        """
         text = (message or "").strip()
         if not text:
             raise ValidationError("the message must not be empty")
@@ -43,6 +65,20 @@ class AgentRuntime:
         return self._to_result(state)
 
     def _invoke(self, session: Session, text: str, *, retry_without_temperature: bool = True):
+        """Run the graph once, translating AI-provider failures.
+
+        Args:
+            session: The database session the tools will use.
+            text: The validated user message.
+            retry_without_temperature: Allow one retry without the ``temperature`` setting, for
+                models that reject it.
+
+        Returns:
+            The final graph state.
+
+        Raises:
+            ServiceUnavailable: If the AI provider rejects the request or cannot be reached.
+        """
         config = {
             # The database session (and a lock for it) travel in the run config. Tools read them
             # from here; the AI never sees them and cannot choose them.
@@ -70,11 +106,24 @@ class AgentRuntime:
             raise ServiceUnavailable(self._unavailable_message()) from exc
 
     def _unavailable_message(self) -> str:
-        """A fixed, safe sentence. A local provider may add a helpful hint (is Ollama running?)."""
+        """Choose the safe sentence shown when the AI provider fails.
+
+        Returns:
+            A fixed message. A provider may add a helpful hint (for example "is Ollama
+            running?" or "check GROQ_MODEL"), but it never includes the original error text.
+        """
         return getattr(self._get_model, "unavailable_message", DEFAULT_UNAVAILABLE_MESSAGE)
 
     @staticmethod
     def _to_result(state: dict) -> AgentResult:
+        """Build the result for the API from the final graph state.
+
+        Args:
+            state: The final graph state.
+
+        Returns:
+            The answer, records, tool trace and the proposals saved by the update agent.
+        """
         intent = state["intent"]
         events = tool_events(state["messages"])
         pending = []
